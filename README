@@ -1,0 +1,14 @@
+Alias Refinement Types:
+A syntax directed separation logic
+==================================
+
+This project contains the formalization of Alias Refinement Types (ART),
+a refinement type system for an imperative programming language. This
+comprises:
+
+1. A Programming Language (Language.v)
+2. A Program Logic (ProgramLogic.v)
+3. A Type Language and Derivation Rules (Types.v and Judge.v).
+
+As a proof of soundness, type derivations are translated
+into proofs in the program logic (Translation.v).
