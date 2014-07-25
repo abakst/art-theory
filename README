@@ -12,3 +12,9 @@ comprises:
 
 As a proof of soundness, type derivations are translated
 into proofs in the program logic (Translation.v).
+
+Dependencies
+============
+This project depends on the verified software toolchain, which
+should be installed in the same directory as the "*.v" files
+($PROJECT_DIR), under $PROJECT_DIR/vst.
