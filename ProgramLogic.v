@@ -49,8 +49,8 @@ Inductive semax : pred world -> stmt -> pred world -> Prop :=
   | semax_skip : 
       forall P, semax P skip_s P
   | semax_assign :
-      forall P x e v,
-        semax (eval_to e v && subst_pred x (Some v) P) (assign_s x e)  P 
+      forall P x e,
+        semax (EX v : value, eval_to e v && subst_pred x (Some v) P) (assign_s x e)  P 
   | semax_seq : 
       forall P Q R s1 s2,
         semax P s1 Q -> semax Q s2 R -> 

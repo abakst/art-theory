@@ -11,8 +11,8 @@ Import Relations.
 
 Delimit Scope lang_scope with lang.
 
-Definition var : Set := nat.
-Definition pname : Set := var.
+Inductive var : Set := V : nat -> var.
+Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
   | int_v  : nat -> value
@@ -34,9 +34,9 @@ Inductive stmt :=
   | proc_s : var  -> pname -> list var -> stmt (* x = p(e0...en) *)
   | seq_s  : stmt -> stmt -> stmt.
 
-Coercion int_v: nat >-> value.
+(* Coercion int_v: nat >-> value. *)
 Coercion value_e: value >-> expr.
-Coercion var_e: var >-> expr.
+(* Coercion var_e: var >-> expr. *)
 
 (*** Equality ***)
 Instance EqDec_value : EqDec value := _.
@@ -44,6 +44,16 @@ Proof.
   hnf. decide equality. 
     decide equality. 
     decide equality.
+Qed.
+
+Instance EqDec_var : EqDec var := _.
+Proof.
+  hnf. decide equality; try apply eq_dec.
+Qed.
+
+Instance EqDec_pname : EqDec pname := _.
+Proof.
+  hnf. decide equality; try apply eq_dec.
 Qed.
 
 Instance EqDec_expr : EqDec expr := _.
@@ -68,7 +78,7 @@ Fixpoint subst_var (s:subst_t var) (v:var) :=
     | (x, x') :: s' => if eq_dec x v then x' else subst_var s' v
   end.
 
-Instance Subst_var_var : Subst var var   :=  subst_var.
+Instance Subst_var_var : Subst var var := subst_var.
 
 Fixpoint subst_expr (s:subst_t var) (e:expr) := 
   match e with 

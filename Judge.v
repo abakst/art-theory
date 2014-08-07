@@ -43,7 +43,13 @@ wf_expr : type_env -> expr -> Prop :=
   wf_expr Γ (value_e v)
 | wf_var : forall Γ v t, (v,t) ∈ Γ ->
 (* ------------------------------------------------------------------- *)
-  wf_expr Γ (var_e v).
+  wf_expr Γ (var_e v)
+| wf_vv : forall Γ,
+(* ------------------------------------------------------------------- *)
+  wf_expr Γ (var_e ν).
+
+Definition wf_env Γ := 
+  var_not_in ν Γ /\ Forall (fun xt => wf_type Γ (snd xt)) Γ.
 
 Inductive wf_schema : type_env -> proc_schema -> Prop :=
 | wf_proc_schema : 
@@ -61,9 +67,9 @@ Inductive expr_type : type_env -> expr -> reft_type -> Prop :=
 (* ------------------------------------------------------------------- *)
   expr_type Γ (value_e v) { ν : (base_of_val v) | (var_e ν) .= (value_e v) }
 
-| t_var : forall Γ x T, (x, T) ∈ Γ -> wf_type Γ T ->
+| t_var : forall Γ x τ φ, (x, { ν : τ | φ }) ∈ Γ ->
 (* ------------------------------------------------------------------- *)
-                        expr_type Γ x T .
+  expr_type Γ (var_e x) { ν : τ | φ }.
 
 Definition tc_list Γ (xs : list var) (ts : list reft_type) :=
   Forall (fun xt => expr_type Γ (var_e (fst xt)) (snd xt))
@@ -78,15 +84,15 @@ Inductive stmt_type : proc_env -> type_env -> stmt -> type_env -> Prop :=
 | t_proc_s : 
     forall Φ Γ (v:var) p S xs θ,
       (p,S) ∈ Φ -> wf_schema nil S -> (θ = subst_call S xs) ->
-      (~ (var_in v Γ)) ->
+      var_not_in v Γ ->
       tc_list Γ xs (subst θ (proc_formal_ts S)) ->
 (* ------------------------------------------------------------------- *)
   (Φ / Γ ⊢ proc_s v p xs ::: ((v, subst θ (snd (proc_ret S))) :: Γ))
 | t_assign : 
-    forall Φ Γ v e t,
-      ~ var_in v Γ -> expr_type Γ e t ->
+    forall Φ Γ v e τ φ,
+      var_not_in v Γ -> expr_type Γ e { ν : τ | φ } ->
 (* ------------------------------------------------------------------- *)
-  (Φ / Γ ⊢ assign_s v e ::: ((v, t) :: Γ))
+  (Φ / Γ ⊢ assign_s v e ::: ((v, { ν : τ | (var_e ν) .= e }) :: Γ))
 | t_seq : forall Φ Γ Γ' Γ'' s1 s2,
   (Φ / Γ ⊢ s1 ::: Γ') -> (Φ / Γ' ⊢ s2 ::: Γ'') ->
 (* ------------------------------------------------------------------- *)

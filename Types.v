@@ -6,7 +6,7 @@ Require Import List.
 Require Import Subst.
 Require Import msl.msl_direct.
 
-Definition vv : var := 0.
+Definition vv : var := V 0.
 
 Delimit Scope reft_scope with reft.
 
@@ -15,11 +15,24 @@ Inductive base_type : Set :=
   | int_t  : base_type
   | bool_t : base_type.
 
+Definition base_of_type b :=
+  match b with
+    | int_t => nat
+    | bool_t => bool
+  end.
+
 Definition base_of_val (v: value) :=
   match v with
     | int_v  _ => int_t
     | bool_v _ => bool_t
   end.
+
+Definition val_of_base : forall (b : base_type), (base_of_type b) -> value :=
+  fun b => 
+    match b with
+      | int_t => fun x => int_v x
+      | bool_t => fun x => bool_v x
+    end.
 
 Inductive brel : Set :=
   | eq_brel : brel
@@ -67,6 +80,7 @@ Definition proc_formal_ts s := snd (List.split (proc_args s)).
 Definition proc_binding : Set := (pname * proc_schema)%type.
 
 Notation "x .= y" := (rel_r x eq_brel y) (at level 70).
+Notation "x .< y" := (rel_r x lt_brel y) (at level 70).
 Notation "{ v : t | P }" := (mkReft_type v t P%reft) (at level 0, v at level 99, no associativity).
 
 
@@ -78,6 +92,9 @@ Definition proc_env : Type := bind_env pname proc_schema.
 
 Definition var_in : var -> type_env -> Prop := 
   fun x Γ => exists t, In (x, t) Γ.
+
+Definition var_not_in : var -> type_env -> Prop :=
+  fun x Γ => Forall (fun xt => (fst xt <> x)) Γ.
 
 Definition fun_in : (pname * proc_schema) -> proc_env -> Prop :=
   fun ft Φ => In ft Φ.
