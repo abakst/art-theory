@@ -12,7 +12,7 @@ Require Import Coq.Unicode.Utf8.
 (** Generally Useful ?? **)
 Hint Unfold var_not_in.
 Hint Unfold var_in.
-Hint Unfold wf_env.
+(* Hint Unfold wf_env. *)
 Hint Unfold Subst_var_expr.
 Hint Unfold subst.
 Hint Unfold derives.
@@ -103,14 +103,25 @@ Ltac crush_eval :=
   end.
 
 Ltac freshvar :=
+  let H := fresh "H" in
   match goal with
     | [ Γ:_, x:_, H1 :_, I : In ?p _ |- _] => 
-      let H := fresh "H" in
       set (H := H1);
       unfold var_not_in in H; 
       rewrite Forall_forall in H;
       specialize (H p I);
       simpl in H
+    | [ H:var_not_in ?x ((?y, ?r) :: _) |- ?x <> ?y ] =>
+      unfold var_not_in in H;
+      rewrite Forall_forall in H;
+      specialize (H (y,r));
+      intuition
+    (*   (apply H || intuition) *)
+    | [ H:var_not_in ?y ((?x, ?r) :: _) |- ?x <> ?y ] =>
+      unfold var_not_in in H;
+      rewrite Forall_forall in H;
+      specialize (H (x,r));
+      apply H
   end.
 
 Ltac app_pair :=
@@ -129,11 +140,11 @@ Ltac reduce_preds :=
   repeat match goal with
     | |- appcontext[(_ && _)] => split; simpl
     | [ H: appcontext[(_ && _)] |- _ ] => destruct H
-    | [ H: !!(_ = _) _ |- _ ] => destruct H (* This one is safe...? *)
+    | [ H: appcontext[!!(_ = _)] |- _ ] => destruct H (* This one is safe...? *)
   end.
 
 Ltac crush_sep lems inv := 
-  crush' lems inv; reduce_preds;
+  crush' lems inv; repeat reduce_preds;
   repeat match goal with
     | [ H : appcontext[(_ || _)] |- _ ] => destruct H
     | [ H : (EX _ : _, _) _ |- _ ] => destruct H

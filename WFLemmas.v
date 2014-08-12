@@ -32,13 +32,6 @@ Ltac wf_freshvar exp :=
       eapply var_not_in_exp with (e := exp) in V1
    end.
 
-Lemma wf_env_ty :
-  forall Γ x t, 
-    wf_env Γ -> (x, t) ∈ Γ -> wf_type Γ t.
-Proof.
-  pair_crush' False wf_env.
-Qed.
-
 Lemma wf_type_prop : 
   forall Γ ν τ φ,
     wf_type Γ { ν : τ | φ } -> wf_prop Γ φ.
@@ -67,15 +60,6 @@ Proof.
   induction φ; intros; constructor; crush' wf_expr_subst ((wf_type, wf_prop), wf_expr).
 Qed.
 
-Lemma wf_env_prop :
-  forall Γ x ν τ φ, 
-    wf_env Γ -> (x, { ν : τ | φ }) ∈ Γ -> wf_prop Γ φ.
-Proof.
-  intros;
-  apply wf_type_prop with (ν := ν) (τ := τ);
-  apply wf_env_ty with (x := x); crush.
-Qed.
-
 Lemma wf_not_in :
   forall x t x' Γ,
     var_not_in x' Γ -> wf_type Γ t -> (x,t) ∈ Γ ->
@@ -83,3 +67,110 @@ Lemma wf_not_in :
 Proof.
   intros; unfold var_not_in in *; crush; app_pair; crush.
 Qed.
+
+Lemma wf_env_ty_cons :
+  forall G t v' t',
+    wf_type G t -> wf_type ((v',t') :: G) t.
+Proof.
+  intros.
+  inversion H. subst.
+  induction H0.
+  + constructor. constructor.
+  + constructor. constructor. 
+    destruct e1. 
+      constructor. 
+      inversion H0. subst. apply in_cons with (a := (v',t')) in H4. apply wf_var with (t:=t). assumption.
+      constructor.
+    destruct e2.
+      constructor.
+      inversion H1. subst. apply in_cons with (a := (v',t')) in H4. apply wf_var with (t:=t). assumption.
+      constructor.
+  + constructor. constructor. 
+    specialize (IHwf_prop (wf_reft_t Γ b p H0)). inversion IHwf_prop. subst. assumption.
+  + constructor. constructor.
+    inversion H. subst.
+    specialize (IHwf_prop1 (wf_reft_t Γ b p1 H0_)).
+    inversion IHwf_prop1. assumption. 
+    specialize (IHwf_prop2 (wf_reft_t Γ b p2 H0_0)).
+    inversion IHwf_prop2. assumption. 
+  + constructor. constructor.
+    inversion H. subst.
+    specialize (IHwf_prop1 (wf_reft_t Γ b p1 H0_)).
+    inversion IHwf_prop1. assumption.
+    specialize (IHwf_prop2 (wf_reft_t Γ b p2 H0_0)).
+    inversion IHwf_prop2. assumption. 
+Qed.
+  
+Lemma wf_env_ty :
+  forall G x t,
+    (x,t) ∈ G  -> wf_env G -> wf_type G t.
+Proof.
+  induction G as [ | [x' t']].
+  + intros. inversion H.
+  + intros. unfold In in H. destruct H.
+    inversion H0. 
+    inversion H7.
+    inversion H.
+    subst.
+    apply wf_env_ty_cons. destruct t as [ vv bb tt ]. inversion H13. subst. apply H7.
+    fold (In (x,t) G) in H. apply wf_env_ty_cons. apply IHG with (x := x). assumption.
+    inversion H0. subst.
+    assumption.
+Qed.
+
+Lemma wf_env_ty_binding :
+  forall G x b p,
+    wf_env G ->
+    (x, { ν : b | p }) ∈ G ->
+    wf_type G { ν : b | p }.
+Proof.
+  induction G as [ | [x' t'] G ].
+  + intros. inversion H0.
+  + intros. apply wf_env_ty_cons. 
+    apply in_inv in H0.
+    destruct H0.
+    inversion H0. subst.
+    inversion H. assumption.
+    apply IHG with (x := x).
+    inversion H. assumption.
+    assumption.
+Qed.
+
+(* apply IHG. inversion H. subst. assumption. *)
+
+Lemma wf_env_expr_ty :
+  forall G e b p,
+    wf_env G ->
+    expr_type G e { ν : b | p } -> 
+    wf_type G { ν : b | p }.
+Proof.
+  intros G e b p wfenv etype.
+  inversion etype. 
+  + constructor; repeat constructor.
+  + subst. apply wf_env_ty_binding with (x := x) (b := b) (p := p) in wfenv; assumption.
+Qed.
+
+Lemma wf_env_stmt :
+  forall P G G' s,
+    wf_env G ->
+    P / G ⊢ s ::: G' ->
+    wf_env G'.
+Proof.
+  intros P G G' s WF J.
+  induction J.
+  + assumption.
+  + admit.
+  + apply wf_env_var. assumption. assumption. assumption.
+    constructor.
+    constructor.
+    constructor.
+    destruct e.
+    constructor.
+    inversion H1.
+    subst. 
+    apply wf_var with (t := { ν : τ | φ }).
+    assumption.
+  + apply IHJ2. apply IHJ1. assumption.
+Qed.
+    
+    

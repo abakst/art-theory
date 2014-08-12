@@ -31,3 +31,5 @@ Instance Subst_prod_list (A X : Type) (S : Subst X X) : Subst (list (X * A)) X :
 
 Definition wf_subst (X : Type) (s : subst_t X) :=
   NoDup (fst (split s)).
+
+(* Notation "[ e / x ]" := subst ((x, e) :: nil). *)

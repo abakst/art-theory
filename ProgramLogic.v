@@ -22,9 +22,16 @@ Instance Disj_world : Disj_alg world := _.
 Definition fun_set (f: var -> option value) (x: var) (y: option value) :=
   fun i => if eq_dec i x then y else f i.
 
-Definition subst_pred (x : var) (v : option value) (P: pred world) : (pred world) := 
-  fun w => P (fun_set w x v).
+Definition subst_one (x : var) (v : expr) :=
+  fun i => if eq_dec i x then Some v else None.
 
+Definition subst_pred sub (P: pred world) : (pred world) := 
+  fun w =>
+    P (fun i => match sub i with
+                  | None    => w i
+                  | Some e  => eval w e
+                end).
+                 
 Definition equal (x y: var) : pred world :=
   fun w => w x = w y.
 
@@ -50,7 +57,11 @@ Inductive semax : pred world -> stmt -> pred world -> Prop :=
       forall P, semax P skip_s P
   | semax_assign :
       forall P x e,
-        semax (EX v : value, eval_to e v && subst_pred x (Some v) P) (assign_s x e)  P 
+        semax (EX v : value, 
+                      eval_to e v 
+                   && subst_pred (subst_one x e) P) (assign_s x e)  P 
+  (* | semax_proc : *)
+  (*     forall  *)
   | semax_seq : 
       forall P Q R s1 s2,
         semax P s1 Q -> semax Q s2 R -> 

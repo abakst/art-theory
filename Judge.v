@@ -48,8 +48,18 @@ wf_expr : type_env -> expr -> Prop :=
 (* ------------------------------------------------------------------- *)
   wf_expr Γ (var_e ν).
 
-Definition wf_env Γ := 
-  var_not_in ν Γ /\ Forall (fun xt => wf_type Γ (snd xt)) Γ.
+(* Definition wf_env Γ :=  *)
+(*   var_not_in ν Γ /\ Forall (fun xt => wf_type Γ (snd xt)) Γ. *)
+
+Inductive wf_env : type_env -> Prop :=
+  | wf_env_nil :
+(* ------------------------------------------------------------------- *)
+    wf_env nil
+  | wf_env_var : 
+      forall Γ x T, 
+        wf_env Γ -> (x <> ν) -> var_not_in x Γ -> wf_type Γ T ->
+(* ------------------------------------------------------------------- *)
+    wf_env ((x, T) :: Γ).
 
 Inductive wf_schema : type_env -> proc_schema -> Prop :=
 | wf_proc_schema : 
@@ -84,12 +94,12 @@ Inductive stmt_type : proc_env -> type_env -> stmt -> type_env -> Prop :=
 | t_proc_s : 
     forall Φ Γ (v:var) p S xs θ,
       (p,S) ∈ Φ -> wf_schema nil S -> (θ = subst_call S xs) ->
-      var_not_in v Γ ->
+      var_not_in v Γ -> v <> ν ->
       tc_list Γ xs (subst θ (proc_formal_ts S)) ->
 (* ------------------------------------------------------------------- *)
   (Φ / Γ ⊢ proc_s v p xs ::: ((v, subst θ (snd (proc_ret S))) :: Γ))
 | t_assign : 
-    forall Φ Γ v e τ φ,
+    forall Φ Γ v e τ φ, v <> ν ->
       var_not_in v Γ -> expr_type Γ e { ν : τ | φ } ->
 (* ------------------------------------------------------------------- *)
   (Φ / Γ ⊢ assign_s v e ::: ((v, { ν : τ | (var_e ν) .= e }) :: Γ))

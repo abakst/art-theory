@@ -11,40 +11,13 @@ Require Import Coq.Unicode.Utf8.
 
 Set Implicit Arguments.
 
-(* Require String. Open Scope string_scope. *)
-
-(* Ltac move_to_top x := *)
-(*   match reverse goal with *)
-(*   | H : _ |- _ => try move x after H *)
-(*   end. *)
-
-(* Tactic Notation "assert_eq" ident(x) constr(v) := *)
-(*   let H := fresh in *)
-(*   assert (x = v) as H by reflexivity; *)
-(*   clear H. *)
-
-(* Tactic Notation "Case_aux" ident(x) constr(name) := *)
-(*   first [ *)
-(*     set (x := name); move_to_top x *)
-(*   | assert_eq x name; move_to_top x *)
-(*   | fail 1 "because we are working on a different case" ]. *)
-
-(* Tactic Notation "Case" constr(name) := Case_aux Case name. *)
-(* Tactic Notation "SCase" constr(name) := Case_aux SCase name. *)
-(* Tactic Notation "SSCase" constr(name) := Case_aux SSCase name. *)
-(* Tactic Notation "SSSCase" constr(name) := Case_aux SSSCase name. *)
-(* Tactic Notation "SSSSCase" constr(name) := Case_aux SSSSCase name. *)
-(* Tactic Notation "SSSSSCase" constr(name) := Case_aux SSSSSCase name. *)
-(* Tactic Notation "SSSSSSCase" constr(name) := Case_aux SSSSSSCase name. *)
-(* Tactic Notation "SSSSSSSCase" constr(name) := Case_aux SSSSSSSCase name. *)
-
 Open Scope pred.
 
 (** Preliminaries ??? **)
-Definition subst_pred (x: var) (e: expr) (p: pred world) : pred world :=
-  fun w =>
-    let w' := fun x' => if eq_dec x x' then eval w e else w x' in
-    p w'.
+(* Definition subst_pred (x: var) (e: expr) (p: pred world) : pred world := *)
+(*   fun w => *)
+(*     let w' := fun x' => if eq_dec x x' then eval w e else w x' in *)
+(*     p w'. *)
 
 (** The meat of the sauce :d tasty **)
 Definition sep_base (x:var) (t:base_type) : pred world :=
@@ -73,8 +46,9 @@ Fixpoint sep_pred (p:reft_prop) : pred world :=
 
 Definition sep_ty (x:var) (t:reft_type) : pred world :=
   match t with
-  | mkReft_type v b p => sep_base x b 
-                      && (sep_pred (subst ((v,x) :: nil) p))
+  | mkReft_type v b p => subst_pred (subst_one v (var_e x)) 
+                                    ((sep_base v b)
+                                       && (sep_pred p))
   end.
 
 Fixpoint sep_env (Γ : type_env) : pred world :=
@@ -82,4 +56,6 @@ Fixpoint sep_env (Γ : type_env) : pred world :=
     | nil => TT
     | (x,t) :: Γ' => sep_ty x t && sep_env Γ'
   end.
-  
+
+Definition disj_subst Γ (θ : var -> option expr) :=
+  θ ν = None /\ forall x, var_in x Γ -> θ x = None.

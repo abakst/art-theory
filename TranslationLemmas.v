@@ -4,9 +4,9 @@ Require Import Coq.Unicode.Utf8.
 
 Require Import Types.
 Require Import Judge.
+Require Import ProgramLogic.
 Require Import Translation.
 Require Import Language.
-Require Import ProgramLogic.
 Require Import WFLemmas.
 Require Import SubstLemmas.
 Require Import EvalLemmas.
@@ -20,9 +20,11 @@ Proof.
   unfold sep_ty.
   inversion ET. subst.
   split.
-  + unfold sep_base.
+  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν b) w).
+    rewrite subst_vv_base_ap. 
     apply expr_eval_ty with (Γ := Γ) (φ := φ).
-    assumption. assumption.
+    apply SE.
+    apply ET.
   + generalize dependent Γ. 
     induction Γ. 
     - intros. inversion H2.
@@ -55,60 +57,63 @@ Proof.
   intros. inversion J. constructor.
 Qed.
 
+
 Lemma sep_proof_assign :
-  forall Φ Γ Γ' x e (J : (Φ / Γ ⊢ assign_s x e ::: Γ')), x <> ν -> 
+  forall Φ Γ Γ' x e (J : (Φ / Γ ⊢ assign_s x e ::: Γ')), 
+    wf_env Γ ->
     {{ sep_env Γ }} assign_s x e {{ sep_env Γ' }}.
 Proof.
-  intros Φ Γ Γ' x e J NotVV.
+  intros Φ Γ Γ' x e J wfenv.
   inversion J. subst.
-  apply semax_pre_post with (P' := EX v : value, eval_to e v 
-                                              && subst_pred x e (sep_env ((x, {ν : τ | (var_e ν) .= e }) :: Γ)))
+  apply semax_pre_post with (P' := EX v : value, (eval_to e v)
+                                              && (subst_pred (subst_one x e )
+                                                             (sep_env ((x, {ν : τ | (var_e ν) .= e }) :: Γ))))
                             (Q' := sep_env ((x,{ν : τ | (var_e ν) .= e }) :: Γ)).
-  unfold derives.
-  simpl.
   intro w. intro SE.
-  assert (exists b, eval_to e b w) as ExVal.
-    apply expr_eval with (Γ := Γ) (T := { ν : τ | φ }). apply SE. apply H5.
-  destruct ExVal. exists x0.
-  split. apply H. simpl.
-  split. split.
-  inversion H5. 
-  unfold sep_base. subst. destruct v. simpl. exists n. destruct (eq_dec x x). reflexivity. contradiction n0. reflexivity.
-  exists b. simpl. destruct (eq_dec x x). reflexivity. contradiction n. reflexivity.
-  subst. unfold sep_base. 
-  apply expr_eval_ty with (Γ := Γ) (φ := φ). 
+  pose (expr_eval Γ e τ φ w SE H6) as ValWit. 
+  destruct ValWit.
+  exists x0. split. apply H.
+  apply subst_env_eq_expr with (φ := φ).
+  assumption.
+  assumption.
+  rewrite subst_dom_env.
+  assumption.
+  assumption.
+  split. unfold subst_one. destruct (eq_dec ν x). subst. contradiction H1. reflexivity. reflexivity.
+  intros x' x'_in_ctx.
+  unfold subst_one. destruct (eq_dec x' x). subst. 
+  unfold var_in in *.
+  unfold var_not_in in *. rewrite Forall_forall in H4. destruct (x'_in_ctx). apply H4 in H0. 
+  contradiction H0. reflexivity. reflexivity.
+  unfold subst_one. destruct (eq_dec ν x). subst. contradiction H1. reflexivity. reflexivity.
+  auto.
+  apply semax_assign with (e := e) (x := x) (P := (sep_env ((x, {ν : τ | var_e ν .= e}) :: Γ))).
+Qed.
 
-exists x0.
-  apply subst_none_base with (x := x) (e := e).
-  destruct ExVal.
-  exists x0. 
-  split.
-    assumption. 
-    split. split. 
-    unfold sep_base. 
-    pose (expr_eval' Γ (var_e x) τ φ) as E'. 
-    eapply E'. 
-    split.
-    unfold derives in E'.
-    exists (val_of_base τ x0).
-        (* destruct H3. unfold imp in H1. apply H1. *)
-  split. split.
-    apply SE.
-    apply H5.
-  elim ExVal.
-    intro val. intro EvalTo.
-  exists val.
-  destruct t as [ν τ φ].
-  hnf.
-  split.
-    apply EvalTo.
-    split. split.
+Theorem sep_proof_stmt :
+  forall Φ Γ Γ' s (J : (Φ / Γ ⊢ s ::: Γ')),
+    wf_env Γ ->
+    {{ sep_env Γ }} s {{ sep_env Γ' }}.
+Proof.
+  intros.
+  destruct s.
+  + apply sep_proof_skip with (Φ := Φ). assumption.
+  + apply sep_proof_assign with (Φ := Φ); assumption.
+  + admit.
+  + induction J.
+    * apply semax_skip.
+    * admit.
+    * apply sep_proof_assign with (Φ := Φ). apply t_assign with (φ := φ); assumption. assumption.
+    * apply semax_seq with (Q := sep_env Γ'). apply IHJ1. assumption. apply IHJ2. 
+      apply wf_env_stmt with (P := Φ) (G := Γ) (s := s0); assumption.
+Qed.
 
-(* (*** The main thingie ***) *)
-(* Theorem sep_type : *)
-(*   forall Φ Γ s Γ', *)
-(*     Φ / Γ ⊢ s ::: Γ' ->  *)
-(*     {{ sep_env Γ }} s {{ sep_env Γ' }}. *)
-(* Proof. *)
-(*   intros. *)
-(*   destruct s. *)
+Corollary type_safety :
+  forall Φ s Γ,
+    Φ / nil ⊢ s ::: Γ -> {{ TT }} s {{ TT }}.
+Proof.
+  intros.
+  assert (wf_env nil). constructor.
+  apply semax_pre_post with (P' := sep_env nil) (Q' := sep_env Γ);
+  first [ constructor | apply sep_proof_stmt with (Φ := Φ); assumption].
+Qed.
