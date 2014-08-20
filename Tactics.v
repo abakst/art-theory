@@ -154,7 +154,6 @@ Ltac crush_sep lems inv :=
     | [ b : _, x : _ |- (EX _ : _, _) _ ] => exists (val_of_base b x)
     | [ v : _  |- (EX _ : _, _) _ ] => exists v 
     | [ v : nat |- (EX _ : value, _) _] => exists (int_v v)                                              
-    | [ v : bool |- (EX _ : value, _) _] => exists (bool_v v)                                              
     | _ => idtac
   end; crush.
 

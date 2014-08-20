@@ -1,6 +1,8 @@
 Add LoadPath "vst".
 Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
+Require Import List.
+Import ListNotations.
 
 Require Import Translation.
 Require Import Types.
@@ -8,6 +10,30 @@ Require Import Judge.
 Require Import Language.
 Require Import Subst.
 Require Import Tactics.
+
+Lemma subst_distr_pair :
+  forall (A B D R : Type) (SA : Subst A D R) (SB : Subst B D R) 
+         (θ : subst_t D R)  (x : A) (y : B),
+    subst θ (x, y) = (subst θ x, subst θ y).
+Proof.
+  auto.
+Qed.
+
+Lemma subst_distr_pair_cons :
+  forall (A B D R : Type) (SA : Subst A D R) (SB : Subst B D R) 
+         (θ : subst_t D R) (x : A) (y : B) (l : list (A * B)),
+    subst θ ((x, y) :: l) = ((subst θ x, subst θ y) :: subst θ l).
+Proof.
+  auto.
+Qed.
+
+Lemma subst_distr_cons :
+  forall (A D R : Type) (SA : Subst A D R)
+         (θ : subst_t D R) (x : A) (l : list A),
+    subst θ (x :: l) = (subst θ x :: subst θ l).
+Proof.
+  auto.
+Qed.
 
 Lemma fresh_var :
   forall x t Γ,
@@ -39,23 +65,43 @@ Proof.
   pair_crush' False wf_type.
 Qed.
 
+Ltac invert_wf_expr :=
+  match goal with
+    | [ e1 : expr, e2 : expr, H : wf_expr _ (fun_e _ ?e1 ?e2) |- appcontext[?e1] ] =>
+      inversion H; crush
+    | [ e1 : expr, e2 : expr, H : wf_expr _ (fun_e _ ?e1 ?e2) |- appcontext[?e2] ] =>
+      inversion H; crush
+  end.
+
+Ltac break_wf_e := 
+  repeat constructor; 
+  unfold subst in *;
+  unfold subst_var_one in *;
+  simpl;
+  invert_wf_expr.
+
+Hint Unfold subst.
+Hint Unfold subst_var_one.
+
 Lemma wf_expr_subst :
   forall Γ e x,
     wf_expr Γ e -> var_in x Γ ->
-    wf_expr Γ (subst ((ν, x) :: nil) e).
+    wf_expr Γ (subst (subst_var_one ν x) e).
 Proof.
-  intros; unfold var_in in *; destruct e; 
-  repeat
-    (match goal with
-       | [ |- context[subst _ _] ] => unfold subst; simpl
-       | [ |- context[eq_dec ?x ?v] ] => destruct (eq_dec x v)
-     end; crush' wf_var fail).
+  intros; unfold var_in in *; induction e; autounfold in *; simpl;
+  first [
+      break_wf_e
+    | match goal with
+        | [ |- context[eq_dec ?x ?v] ] => destruct (eq_dec x v); crush' wf_var fail
+        | _ => crush
+      end 
+    ].
 Qed.
 
 Lemma wf_prop_subst :
   forall Γ φ x,
     wf_prop Γ φ -> var_in x Γ ->
-    wf_prop Γ (subst ((ν, x) :: nil) φ).
+    wf_prop Γ (subst (subst_var_one ν x) φ).
 Proof.
   induction φ; intros; constructor; crush' wf_expr_subst ((wf_type, wf_prop), wf_expr).
 Qed.
@@ -68,6 +114,18 @@ Proof.
   intros; unfold var_not_in in *; crush; app_pair; crush.
 Qed.
 
+Lemma wf_expr_cons :
+  forall G e v t,
+         wf_expr G e -> wf_expr ((v,t) :: G) e.
+Proof.
+  intros.
+  induction H.
+  + constructor.
+  + apply in_cons with (a:=(v,t)) in H. apply wf_var with (t:=t0). assumption.
+  + constructor.
+  + constructor. apply IHwf_expr1. apply IHwf_expr2.
+Qed.
+
 Lemma wf_env_ty_cons :
   forall G t v' t',
     wf_type G t -> wf_type ((v',t') :: G) t.
@@ -76,15 +134,7 @@ Proof.
   inversion H. subst.
   induction H0.
   + constructor. constructor.
-  + constructor. constructor. 
-    destruct e1. 
-      constructor. 
-      inversion H0. subst. apply in_cons with (a := (v',t')) in H4. apply wf_var with (t:=t). assumption.
-      constructor.
-    destruct e2.
-      constructor.
-      inversion H1. subst. apply in_cons with (a := (v',t')) in H4. apply wf_var with (t:=t). assumption.
-      constructor.
+  + constructor. constructor; apply wf_expr_cons; assumption.
   + constructor. constructor. 
     specialize (IHwf_prop (wf_reft_t Γ b p H0)). inversion IHwf_prop. subst. assumption.
   + constructor. constructor.
@@ -107,14 +157,18 @@ Lemma wf_env_ty :
 Proof.
   induction G as [ | [x' t']].
   + intros. inversion H.
-  + intros. unfold In in H. destruct H.
-    inversion H0. 
-    inversion H7.
+  + intros. (* unfold In in H. destruct H. *)
+    apply in_inv in H.
+    destruct H.
     inversion H.
     subst.
-    apply wf_env_ty_cons. destruct t as [ vv bb tt ]. inversion H13. subst. apply H7.
-    fold (In (x,t) G) in H. apply wf_env_ty_cons. apply IHG with (x := x). assumption.
-    inversion H0. subst.
+    inversion H0.
+    assumption.
+    apply wf_env_ty_cons.
+    apply IHG with (x:= x).
+    assumption.
+    inversion H0.
+    subst.
     assumption.
 Qed.
 
@@ -124,19 +178,9 @@ Lemma wf_env_ty_binding :
     (x, { ν : b | p }) ∈ G ->
     wf_type G { ν : b | p }.
 Proof.
-  induction G as [ | [x' t'] G ].
-  + intros. inversion H0.
-  + intros. apply wf_env_ty_cons. 
-    apply in_inv in H0.
-    destruct H0.
-    inversion H0. subst.
-    inversion H. assumption.
-    apply IHG with (x := x).
-    inversion H. assumption.
-    assumption.
+  intros.
+  apply wf_env_ty with (x := x) (t := { ν : b | p }); assumption.
 Qed.
-
-(* apply IHG. inversion H. subst. assumption. *)
 
 Lemma wf_env_expr_ty :
   forall G e b p,
@@ -159,18 +203,79 @@ Proof.
   intros P G G' s WF J.
   induction J.
   + assumption.
-  + admit.
+  + assumption. 
   + apply wf_env_var. assumption. assumption. assumption.
     constructor.
     constructor.
     constructor.
-    destruct e.
-    constructor.
     inversion H1.
-    subst. 
+    constructor.
     apply wf_var with (t := { ν : τ | φ }).
+    unfold In.
+    right.
     assumption.
   + apply IHJ2. apply IHJ1. assumption.
 Qed.
-    
-    
+
+Lemma wf_schema_ret_not_vv :
+  forall S,
+    wf_schema S -> fst (s_ret S) <> ν.
+Proof.
+  intros.
+  inversion H.
+  inversion H2.
+  subst.
+  destruct S as [xs ts [xret tret]]. simpl in *.
+  inversion H4. subst.
+  assumption.
+Qed.
+
+Lemma wf_vv_is_uniq :
+  forall x vv b p xts,
+    wf_env ((x, {vv : b | p}) :: xts) ->
+    vv = ν.
+Proof.
+  intros x vv b p xts wf.
+  inversion wf.
+  match goal with 
+    | [ H : wf_type _ { vv : _ | _ } |- vv = ν ] => 
+      inversion H; subst; reflexivity
+  end.
+Qed.
+
+Lemma wf_vv_is_uniq_list :
+  forall (x : var) vv b p Γ xts,
+    Forall (fun xt => wf_type Γ (snd xt)) ((x, { vv : b | p }) :: xts) ->
+    vv = ν.
+Proof.
+  intros.
+  rewrite Forall_forall in H.
+  specialize (H (x,{ vv : b | p })).
+  assert (wf_type Γ { vv : b | p }).
+  apply H.
+  unfold In.
+  left.
+  reflexivity.
+  inversion H0.
+  reflexivity.
+Qed.
+
+Hint Unfold wf_subst.
+Lemma wf_subst_split :
+  forall θ,
+    wf_subst θ -> (θ ν = ν /\ forall v, θ v = ν -> v = ν).
+Proof.
+  intros.
+  unfold wf_subst in H.
+  split.
+  apply H; reflexivity.
+  apply H.
+Qed.
+
+Ltac wfsubst x :=
+  let H := fresh "H" in
+  pose (H := wf_subst_split x);
+    match goal with
+      | G : wf_subst _ |- _ =>
+        specialize (H G); destruct H
+    end.

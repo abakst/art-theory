@@ -8,6 +8,7 @@ Require Import List.
 Require Import Subst.
 Require Import msl.eq_dec.
 Import Relations. 
+Import ListNotations.
 
 Delimit Scope lang_scope with lang.
 
@@ -15,24 +16,39 @@ Inductive var : Set := V : nat -> var.
 Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
-  | int_v  : nat -> value
-  | bool_v : bool -> value.
+  | int_v  : nat -> value.
 
 Inductive expr :=
   | value_e : value -> expr
-  | var_e : var -> expr.
+  | var_e   : var -> expr
+  | fun_e   : pname -> expr -> expr -> expr. 
 
-Record proc :=
+Fixpoint fv_expr e :=
+  match e with
+    | var_e v => [v]
+    | fun_e f e1 e2 => fv_expr e1 ++ fv_expr e2
+    | _ => []
+  end.
+
+(* 
+Procedure p(x0 ... xn)
+- return value is stored in one of p_mod 
+*)
+Record proc' s :=
     { p_arity: nat;
       p_args: list var;
-      p_mod: list var
+      p_mod: list var;
+      p_body: s
     }.
 
 Inductive stmt :=
-  | skip_s : stmt
+  | skip_s   : stmt
   | assign_s : var -> expr -> stmt
-  | proc_s : var  -> pname -> list var -> stmt (* x = p(e0...en) *)
-  | seq_s  : stmt -> stmt -> stmt.
+  | proc_s   : pname -> list var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
+  | seq_s    : stmt -> stmt -> stmt.
+
+Definition proc := proc' stmt.
+Definition mkProc := Build_proc' stmt.
 
 (* Coercion int_v: nat >-> value. *)
 Coercion value_e: value >-> expr.
@@ -41,9 +57,7 @@ Coercion value_e: value >-> expr.
 (*** Equality ***)
 Instance EqDec_value : EqDec value := _.
 Proof.
-  hnf. decide equality. 
-    decide equality. 
-    decide equality.
+  hnf. decide equality; apply eq_dec.
 Qed.
 
 Instance EqDec_var : EqDec var := _.
@@ -58,71 +72,58 @@ Qed.
 
 Instance EqDec_expr : EqDec expr := _.
 Proof.
-  hnf. decide equality; try apply eq_dec.
-Qed.
-
-Instance EqDec_proc : EqDec proc := _.
-Proof.
-  hnf. decide equality; try apply eq_dec.
+  hnf. decide equality; apply eq_dec.
 Qed.
 
 Instance EqDec_stmt : EqDec stmt := _.
 Proof.
-  hnf. decide equality; try apply eq_dec.
+  hnf.
+  decide equality;
+  apply eq_dec.
 Qed.
 
 (*** Substitutions ***)
-Fixpoint subst_var (s:subst_t var) (v:var) := 
-  match s with 
-    | nil => v
-    | (x, x') :: s' => if eq_dec x v then x' else subst_var s' v
-  end.
+Definition subst_var (s:subst_t var var) (v:var) := s v.
+Instance Subst_var_var : Subst var var var := subst_var.
 
-Instance Subst_var_var : Subst var var := subst_var.
+Definition subst_var_one (v : var) (v' : var) : subst_t var var  :=
+  fun i => if eq_dec i v then v' else i.
 
-Fixpoint subst_expr (s:subst_t var) (e:expr) := 
+Fixpoint subst_expr_var (s:subst_t var var) (e:expr) := 
   match e with 
-    | var_e v => (var_e (subst_var s v))
+    | var_e v => var_e (s v)
+    | fun_e p e1 e2 => fun_e p (subst_expr_var s e1) (subst_expr_var s e2)
     | _ => e
   end.
-Instance Subst_var_expr : Subst expr var := fun s v => subst_expr s v.
+Instance Subst_var_var_expr : Subst expr var var := fun s v => subst_expr_var s v.
 
-Fixpoint subst_stmt (s:subst_t var) (st:stmt) :=
+Fixpoint subst_expr (s:subst_t var expr) (e:expr) := 
+  match e with 
+    | var_e v => s v
+    | fun_e p e1 e2 => fun_e p (subst_expr s e1) (subst_expr s e2)
+    | _ => e
+  end.
+Instance Subst_var_expr : Subst expr var expr := fun s v => subst_expr s v.
+
+Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
   match st with
-    | proc_s x p xs => proc_s (subst s x) p (subst s xs)
+    | proc_s p xs os => proc_s p (subst s xs) (subst s os)
     | assign_s x e => assign_s (subst s x) (subst s e)
     | _ => st
   end.
 
-Instance Subst_stmt : Subst stmt var := subst_stmt.
+Instance Subst_stmt : Subst stmt var var := subst_stmt.
 
-(**** Semantics ****)
-(*** a la Appel, PLFCC ***)
-Definition table (A B : Type) := list (A * B).
-Fixpoint table_get {A B}{H: EqDec A} (rho: table A B) (x: A) : option B :=
-  match rho with
-  | (y,v)::ys => if eq_dec x y then Some v else table_get ys x
-  | nil       => None
- end.
+Definition state := var -> value.
 
-Definition table_set {A B}{H: EqDec A} (x: A) (v: B) (rho: table A B)  : table A B := (x,v)::rho.
+Parameter eval_fun : pname -> expr -> expr -> value.
 
-Lemma table_gss {A B}{H: EqDec A}: forall rho x (v: B), table_get (table_set x v rho) x = Some v.
-Proof.
-intros.
-simpl. destruct (eq_dec x x); auto. contradiction n; auto.
-Qed.
-
-Lemma table_gso {A B}{H: EqDec A}: forall rho x y (v:B), x<>y -> table_get (table_set x v rho) y = table_get rho y.
-Proof.
-intros.
-simpl. destruct (eq_dec y x); auto.  contradiction H0; auto.
-Qed.
-
-Definition state := table var value.
-
-Definition eval s e :=
+Fixpoint eval s e :=
   match e with
-    | value_e v => Some v
+    | value_e v => v
     | var_e v   => s v
+    | fun_e f e1 e2 => 
+      let v1 := eval s e1 in
+      let v2 := eval s e2 in
+      eval_fun f v1 v2
   end.
