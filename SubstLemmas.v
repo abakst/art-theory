@@ -1286,3 +1286,38 @@ Proof.
     inversion wf; assumption.
     apply H.
 Qed.
+
+Lemma vv_not_free_sep_env :
+  forall G,
+    var_not_in ν G -> 
+    nonfreevars (sep_env' G) ν.
+Proof.
+  induction G.
+  + constructor.
+  + intros.
+    unfold var_not_in in H.
+    rewrite Forall_forall in H.
+    destruct a as [x [vv b p]].
+    specialize (H (x,{vv : b | p})).
+    unfold sep_env'. fold sep_env'.
+    split.
+    destruct H0.
+    unfold sep_ty'.
+    split.
+    unfold sep_ty' in H0.
+    destruct H0.
+    unfold sep_base.
+    destruct H0.
+    exists x0.
+    simpl. unfold subst_one.
+    foo.
+    unfold subst_one.
+
+
+    destruct H.
+    left. reflexivity.
+    
+    unfold sep_env.
+    fold sep_env.
+    split.
+    destruct H0.

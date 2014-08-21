@@ -3,7 +3,6 @@ Require Import CpdtTactics.
 Require Import Types.
 Require Import ProgramLogic.
 Require Import Language.
-Require Import Judge.
 Require Import Subst.
 Require Import List.
 Import ListNotations.
@@ -14,13 +13,6 @@ Set Implicit Arguments.
 
 Open Scope pred.
 
-(** Preliminaries ??? **)
-(* Definition subst_pred (x: var) (e: expr) (p: pred world) : pred world := *)
-(*   fun w => *)
-(*     let w' := fun x' => if eq_dec x x' then eval w e else w x' in *)
-(*     p w'. *)
-
-(** The meat of the sauce :d tasty **)
 Definition sep_base (x:var) (t:base_type) : pred world :=
   EX v : (base_of_type t), (fun s => (eval s (var_e x) = (val_of_base t v))).
 
@@ -52,6 +44,12 @@ Fixpoint sep_env (Γ : type_env) : pred world :=
   match Γ with
     | nil => TT
     | (x,t) :: Γ' => sep_ty x t && sep_env Γ'
+  end.
+
+Fixpoint sep_env' (Γ : type_env) : pred world :=
+  match Γ with
+    | nil => TT
+    | (x,t) :: Γ' => sep_ty' x t && sep_env' Γ'
   end.
 
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 

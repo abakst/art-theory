@@ -1,6 +1,7 @@
 Add LoadPath "vst".
 Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
+Require Import Coq.Program.Equality.
 
 Require Import Translation.
 Require Import WFLemmas.
@@ -52,11 +53,10 @@ Lemma expr_eval :
                 (EX v : value, (fun s => eval s e = v)) w.
 Proof.
   autounfold in *. intros.
-  inversion H0.
-  subst.
-  simpl. exists v. reflexivity.
-  subst.
-  apply var_eval with (Γ := Γ) (b := b) (φ := φ); crush.
+  induction H0.
+  * simpl. exists v. reflexivity.
+  * apply var_eval with (Γ := Γ) (b := τ) (φ := φ0); assumption.
+  * apply IHexpr_type; assumption.
 Qed.
 
 Lemma expr_eval_ty :
@@ -65,28 +65,25 @@ Lemma expr_eval_ty :
       (EX v : base_of_type b , (fun s => eval s e = val_of_base b v)) w.
 Proof.
   autounfold in *. intros.
-  destruct e.
-  + destruct b.
-  - inversion H0. subst.
-    destruct v.
-    * simpl. exists n. reflexivity.
-  + inversion H0. subst.
-    * simpl. pose (var_val Γ v b φ w H4 H). assumption.
-  + inversion H0.
+  apply expr_eval with (e := e) (b := b) (φ := φ) in H.
+  destruct H.
+  destruct b.
+  destruct x.
+  exists n. 
+  apply H.
+  assumption.
 Qed.
 
-(* Lemma expr_eval_derives : *)
-(*   forall Γ e b φ,  *)
-(*     expr_type Γ e { ν : b | φ } -> (sep_env Γ) |-- (EX v : value, (fun s => eval s e = Some v)). *)
-(* Proof. *)
-(*   intros Γ e b φ T w Den_Γ. *)
-(*   destruct e. *)
-(*   exists v. reflexivity. *)
-(*   apply var_eval with (x := v) (b := b) (φ := φ) in Den_Γ . *)
-(*   auto. inversion T. apply H2. *)
-(* Qed. *)
+Lemma exfalso_etype_fun :
+  forall G f e1 e2 T,
+    expr_type G (fun_e f e1 e2) T -> False.
+Proof.
+  intros.
+  dependent induction H.
+  auto.
+Qed.
 
-Lemma subst_env_eq_expr:
+Lemma subst_env_eq_expr :
   forall G b x e w φ, 
     expr_type G e { ν : b | φ } ->
     sep_env G w ->
@@ -115,9 +112,8 @@ Proof.
     } 
     {
       unfold sep_pred.
-      simpl.
       unfold subst_one.
-      simpl.
+      simpl in *.
       destruct (eq_dec ν ν).
       simpl. 
       destruct e.
@@ -129,9 +125,16 @@ Proof.
       destruct (eq_dec v ν). simpl.
       destruct (eq_dec x x). reflexivity.
       contradiction n.
-      simpl. destruct (eq_dec v x). reflexivity. reflexivity. contradiction n. reflexivity.
-      inversion etype.
-      contradiction n. reflexivity.
+      simpl. 
+      destruct (eq_dec v x). 
+      reflexivity. 
+      reflexivity. 
+      contradiction n. 
+      reflexivity.
+      exfalso. apply exfalso_etype_fun with (G := G) (f := p) (e1 := e1) (e2 := e2) (T := { ν : b | φ }).
+      assumption.
+      contradiction n.
+      reflexivity.
     } 
   }
   {

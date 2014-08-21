@@ -192,6 +192,7 @@ Proof.
   inversion etype. 
   + constructor; repeat constructor.
   + subst. apply wf_env_ty_binding with (x := x) (b := b) (p := p) in wfenv; assumption.
+  + assumption.
 Qed.
 
 Lemma wf_env_stmt :
@@ -205,15 +206,14 @@ Proof.
   + assumption.
   + assumption. 
   + apply wf_env_var. assumption. assumption. assumption.
-    constructor.
-    constructor.
-    constructor.
-    inversion H1.
-    constructor.
-    apply wf_var with (t := { ν : τ | φ }).
-    unfold In.
-    right.
-    assumption.
+      constructor.
+      constructor.
+      constructor.
+      subst.
+      induction H1. constructor.
+      apply wf_var with (t := { ν : τ0 | φ0}).
+      unfold In. right. assumption.
+      apply IHexpr_type; assumption.
   + apply IHJ2. apply IHJ1. assumption.
 Qed.
 

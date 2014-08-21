@@ -1,6 +1,7 @@
 Add LoadPath "vst".
 Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
+Require Import Coq.Program.Equality.
 
 Require Import Types.
 Require Import Judge.
@@ -33,42 +34,160 @@ Proof.
   assumption.
 Qed.
 
-Lemma type_interp :
-  forall Γ x T s,
-      sep_env Γ s -> (expr_type Γ (var_e x) T) -> sep_ty x T s.
+Lemma subtype_interp_pred :
+  forall Γ φ φ' b,
+    subtype Γ { ν : b | φ } { ν : b | φ' } -> 
+    (forall w,
+      sep_env Γ w -> 
+      sep_pred φ w -> sep_pred φ' w).
 Proof.
-  intros Γ x [ ν b φ ] w SE ET.
+  intros.
+  inversion  H.
+  apply H4; assumption.
+Qed.
+
+Lemma subtype_interp :
+  forall Γ φ φ' x b,
+    subtype Γ { ν : b | φ } { ν : b | φ' } -> 
+    (forall w,
+      sep_env Γ w -> 
+      sep_ty x { ν : b | φ } w ->
+      sep_ty x { ν : b | φ' } w).
+Proof.
+  intros.
   unfold sep_ty.
-  inversion ET. subst.
   split.
-  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν b) w).
+  apply H1.
+  apply subtype_interp_pred with Γ φ b.
+  assumption.
+  unfold subst_one.
+  
+  
+  intros G p p' x b. 
+  induction G.
+  + intros. inversion H. simpl in *.
+    split. apply H1. apply H4. constructor. apply H1.
+  + intros st w senv st1.
+    
+
+
+  w stype.
+  inversion stype; subst.
+  induction G.
+  + destruct xin; inversion H.
+  + destruct a as [ x' t' ].
+    unfold imp, derives in *.
+    unfold var_in in xin.
+    destruct xin as [ ? xin ].
+    apply in_inv in xin.
+    destruct xin as [ xin | xin ].
+    inversion xin; subst.
+    inversion stype. subst.
+    split.
+    apply st1.
+    apply H2.
+    
+
+
+
+    inversion xin; subst.
+    unfold sep_env.
+    fold sep_env.
+    split.
+    unfold sep_ty.
+    destruct x0.
+    inversion stype. subst.
+    
+  
+  
+  
+  
+  
+
+Lemma type_interp :
+  forall Γ x T,
+    expr_type Γ (var_e x) T ->
+    forall w,
+      (sep_env Γ w -> sep_ty x T w).
+Proof.
+  intros Γ x T ET. (* [ ν b φ ]  w SE ET. *)
+  dependent induction ET. 
+  unfold sep_ty.
+  intros w SE.
+  split.
+  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν τ) w).
     rewrite subst_vv_base_ap. 
     apply expr_eval_ty with (Γ := Γ) (φ := φ).
     apply SE.
-    apply ET.
+    constructor; assumption.
   + generalize dependent Γ. 
     induction Γ. 
-    - intros. inversion H2.
-    - intros. apply in_inv in H2. destruct a. destruct H2.
+    - intros. inversion H.
+    - intros. apply in_inv in H. destruct a. destruct H.
       * inversion H. subst. apply SE.
       * apply IHΓ. unfold sep_env in SE.
         {
+          apply H. 
+        } 
+        {
           apply SE. 
         } 
+  + intros w SE.
+    destruct T as [ vv b p ]. destruct T' as [ vv' b' p' ].
+    inversion H.
+    inversion H0.
+    subst.
+    unfold subst_pred.
+    split.
+    apply IHET.
+    assumption.
+    unfold andp in IHET.
+    unfold derives, imp in H8.
+    specialize (H8 w SE).
+    specialize (IHET w SE).
+    destruct IHET.
+    
+    apply H8.
+
+Lemma type_interp :
+  forall Γ x T w,
+    sep_env Γ w -> (expr_type Γ (var_e x) T) -> sep_ty x T w.
+Proof.
+  intros Γ x T (* [ ν b φ ] *) w SE ET.
+  unfold sep_ty.
+  subst.
+  dependent induction ET. 
+  split.
+  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν τ) w).
+    rewrite subst_vv_base_ap. 
+    apply expr_eval_ty with (Γ := Γ) (φ := φ).
+    apply SE.
+    constructor; assumption.
+  + generalize dependent Γ. 
+    induction Γ. 
+    - intros. inversion H.
+    - intros. apply in_inv in H. destruct a. destruct H.
+      * inversion H. subst. apply SE.
+      * apply IHΓ. unfold sep_env in SE.
         {
           apply H. 
         } 
-        { 
-          inversion ET. 
-          subst.
-          apply in_inv in H3. destruct H3. 
-          { 
-            inversion H0. subst. constructor. apply H.
-          }
-          {
-            constructor. apply H0.
-          }
-        }
+        {
+          apply SE. 
+        } 
+  + destruct T as [ vv b p ]. destruct T' as [ vv' b' p' ].
+    inversion H.
+    inversion H0.
+    subst.
+    specialize (IHET SE).
+    destruct IHET.
+    split.
+    assumption.
+    unfold derives, imp in H8.
+    apply H8.
+    
+    
+    
 Qed.
 
 Lemma types_interp :

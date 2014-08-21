@@ -8,11 +8,9 @@ Require Import List.
 Import ListNotations.
 Require Import ListSet.
 Require Import Subst.
+Require Import Translation.
  
-(* Reserved Notation " Γ ⊢ e [ t ]" (at level 0, no associativity). *)
 Reserved Notation "P / G ⊢ s ::: O " (at level 0, no associativity).
-
-Definition ν := vv.
 
 Definition wf_subst θ := forall v, θ v = ν <-> v = ν.
 
@@ -62,10 +60,6 @@ wf_expr : type_env -> expr -> Prop :=
 (* ------------------------------------------------------------------- *)
   wf_expr Γ (fun_e f e1 e2).
             
-
-(* Definition wf_env Γ :=  *)
-(*   var_not_in ν Γ /\ Forall (fun xt => wf_type Γ (snd xt)) Γ. *)
-
 Inductive wf_env : type_env -> Prop :=
   | wf_env_nil :
 (* ------------------------------------------------------------------- *)
@@ -86,6 +80,12 @@ Inductive wf_schema : proc_schema -> Prop :=
 (* ------------------------------------------------------------------- *)
   wf_schema S.
 
+Inductive subtype : type_env -> reft_type -> reft_type -> Prop :=
+| st_base : forall Γ b p p',
+             ((sep_env Γ) |-- (sep_pred p --> sep_pred p')) ->
+(* ------------------------------------------------------------------- *)
+  subtype Γ { ν : b | p } { ν : b | p' }.
+
 Inductive expr_type : type_env -> expr -> reft_type -> Prop :=
 | t_const : forall Γ v,
 (* ------------------------------------------------------------------- *)
@@ -93,7 +93,12 @@ Inductive expr_type : type_env -> expr -> reft_type -> Prop :=
             
 | t_var : forall Γ x τ φ, (x, { ν : τ | φ }) ∈ Γ ->
 (* ------------------------------------------------------------------- *)
-  expr_type Γ (var_e x) { ν : τ | φ }.
+  expr_type Γ (var_e x) { ν : τ | φ }
+
+| t_sub : forall Γ e T T',
+            expr_type Γ e T -> wf_type Γ T' -> subtype Γ T T' -> 
+(* ------------------------------------------------------------------- *)
+  expr_type Γ e T'.
 
 Definition tc_list Γ (xts : list (var * reft_type)) :=
   Forall (fun xt => 
@@ -115,17 +120,13 @@ Inductive stmt_type : proc_env -> type_env -> stmt -> type_env -> Prop :=
   (Φ / Γ ⊢ skip_s ::: Γ)
 | t_proc_s : 
     forall Φ Γ (v:var) f p S xs ts θ θS,
-      (f,(p,S)) ∈ Φ -> 
-      wf_schema S -> 
-      (* (θ = subst_call S v xs) -> *)
-      wf_subst θ ->
+      (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ ->
       θS = subst θ S ->
       xs = subst θ (s_formals S) ->
       ts = subst θ (s_formal_ts S) ->
       v  = subst θ (fst (s_ret S)) ->
       (forall x, θ x = v <-> x = (fst (s_ret S))) ->
       (forall x', ~(In x' (fst (s_ret S) :: s_formals S)) -> θ x' = x') ->
-      (* v <> ν -> var_not_in v Γ ->  *)
       wf_env (subst θ (s_ret S) :: Γ) ->
       Forall (fun t => wf_type Γ t) ts ->
       tc_list Γ (combine xs ts) ->
@@ -142,47 +143,3 @@ Inductive stmt_type : proc_env -> type_env -> stmt -> type_env -> Prop :=
   (Φ / Γ ⊢ seq_s s1 s2 ::: Γ'')
 
 where "P / G ⊢ s ::: O " := (stmt_type P G s O).
-
-
-(* Definition x := 1. *)
-(* Definition y := 2. *)
-(* Definition z := 3. *)
-(* Definition plus := 100. *)
-
-(* Definition t := { ν : int_t | tt_r }. *)
-
-(* Definition plus_schema := *)
-(*   mkSchema ((9, { ν : int_t | tt_r }) :: (10, { ν : int_t | tt_r }) :: nil) *)
-(*             (11, { ν : int_t | tt_r }). *)
-(* Example ex1: *)
-(*   wf_schema nil plus_schema. *)
-(* Proof. *)
-(*   constructor.  *)
-(*   constructor. *)
-(*     unfold In. unfold not. intro. destruct H. inversion H. apply H.  *)
-(*   constructor. *)
-(*     unfold In. unfold not. auto.  *)
-(*   constructor. *)
-(*   constructor. unfold not. intro. destruct H. unfold In in H. apply H. *)
-(*   constructor. unfold not. intro. destruct H. unfold In in H. apply H. *)
-(*   constructor. unfold not. intro. destruct H. unfold In in H. apply H. *)
-(*   repeat constructor.  *)
-(*   repeat constructor. *)
-(* Qed. *)
-
-(* Example ex2: *)
-(*   ((plus, plus_schema) :: nil) / ((x, t) :: (y, t) :: nil) ⊢ proc_s z plus (x :: y :: nil) ::: ((z, t) :: (x, t) :: (y, t) :: nil). *)
-(* Proof. *)
-(*   apply t_proc_s with (Φ := ((plus, plus_schema) :: nil)) *)
-(*                        (Γ := ((x, t) :: (y, t) :: nil)) *)
-(*                        (v := z) (p := plus) (S := plus_schema) (θ := ((9, 1) :: (10, 2) :: nil)). *)
-(*   constructor. reflexivity. *)
-(*   apply ex1. *)
-(*   compute. reflexivity.  *)
-(*   unfold tc_list. constructor. *)
-(*     simpl. constructor. constructor. compute. reflexivity. *)
-(*     compute. constructor. constructor. *)
-(*   constructor. simpl. constructor. compute. right.left. reflexivity. *)
-(*   constructor. compute. constructor. *)
-(*   constructor. *)
-(* Qed. *)

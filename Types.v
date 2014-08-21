@@ -144,3 +144,5 @@ Instance EqDec_proc_schema : EqDec proc_schema := _.
 Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
+
+Definition ν := vv.
