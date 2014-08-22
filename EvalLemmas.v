@@ -114,8 +114,10 @@ Proof.
       unfold sep_pred.
       unfold subst_one.
       simpl in *.
+      unfold Subst.subst, Subst_var_expr.
+      simpl.
       destruct (eq_dec ν ν).
-      simpl. 
+      simpl.
       destruct e.
       destruct (eq_dec x x).
       simpl.

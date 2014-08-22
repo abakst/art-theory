@@ -34,167 +34,346 @@ Proof.
   assumption.
 Qed.
 
+Lemma sub_eq_expr :
+  forall (e : expr) x x', 
+    subst (subst_one x (var_e x')) e 
+    = subst (fun i => if eq_dec i x then x' else i) e.
+Proof.
+  induction e.
+  * reflexivity.
+  * intros. unfold subst. simpl. unfold subst_one. foo. 
+  * intros.
+    unfold subst at 1.
+    unfold Subst_var_expr.
+    unfold Language.subst_expr.
+    rewrite IHe1.
+    rewrite IHe2.
+    reflexivity.
+Qed.
+  
+Lemma sub_eq :
+  forall (p : reft_prop) x x', 
+    subst (subst_one x (var_e x')) p 
+    = subst (fun i => if eq_dec i x then x' else i) p.
+Proof.
+  intros.
+  induction p.
+  constructor.
+  unfold subst.
+  unfold Subst_prop, Subst_prop_var, subst_prop, subst_prop_var.
+  rewrite sub_eq_expr.
+  rewrite sub_eq_expr.
+  reflexivity.
+  unfold subst in *.
+  simpl.
+  rewrite IHp.
+  reflexivity.
+  unfold subst in *.
+  simpl.
+  rewrite IHp1.
+  rewrite IHp2.
+  reflexivity.
+  unfold subst in *.
+  simpl.
+  rewrite IHp1.
+  rewrite IHp2.
+  reflexivity.
+Qed.
+
+Lemma subst_vv_ty:
+  forall x x' T,
+    x <> ν ->
+    forall w,
+      sep_ty x T w -> 
+      subst (fun i => if eq_dec i ν then x' else i) (sep_ty x T) w.
+Proof.
+  intros.
+  unfold subst.
+  unfold sep_ty.
+  destruct T as [b p].
+  simpl in *.
+  split.
+  destruct H0.
+  unfold sep_base in *.
+  destruct H0.
+  exists x0.
+  simpl.
+  destruct (eq_dec x ν). intuition. apply H0.
+  destruct H0.
+  clear H0.
+  rewrite sub_eq in *.
+  simpl.
+  rewrite <- subst_ty_prop in *.
+  unfold subst, Subst_pred_var, subst_pred_var in *.
+  simpl in *.
+  assert
+     ((λ i : var, w (if eq_dec i ν then x else i))
+      = (λ i : var,
+               w
+                 (if eq_dec (if eq_dec i ν then x else i) ν
+                  then x'
+                  else if eq_dec i ν then x else i))).
+  extensionality i.
+  destruct (eq_dec i ν). destruct (eq_dec x ν). intuition. reflexivity.
+  destruct (eq_dec i ν). intuition. reflexivity.
+  rewrite <- H0.
+  assumption.
+Qed.
+ 
+Lemma vv_sub_env :
+  forall G,  
+    var_not_in ν G -> 
+    forall w,
+      sep_env G w ->
+      (forall x,
+        subst (fun i => if eq_dec i ν then x else i) (sep_env G) w).
+Proof.
+  intro G.
+  induction G.
+  + simpl. constructor.
+  + destruct a as [b p].
+    unfold sep_env in *.
+    fold sep_env in *.
+    split.
+    destruct H0.
+    apply subst_vv_ty.
+    unfold var_not_in in H.
+    rewrite Forall_forall in H.
+    apply H with (x := (b, p)).
+    left. reflexivity.
+    assumption.
+    apply IHG.
+    unfold var_not_in in *.
+    inversion H.
+    apply H4.
+    apply H0.
+Qed.
+
 Lemma subtype_interp_pred :
-  forall Γ φ φ' b,
+  forall Γ φ φ' x b,
+    var_not_in ν Γ ->
     subtype Γ { ν : b | φ } { ν : b | φ' } -> 
     (forall w,
       sep_env Γ w -> 
-      sep_pred φ w -> sep_pred φ' w).
+      sep_pred (subst (subst_one ν (var_e x)) φ) w -> 
+      sep_pred (subst (subst_one ν (var_e x)) φ') w).
 Proof.
   intros.
-  inversion  H.
-  apply H4; assumption.
+  inversion H0. subst.
+  unfold derives, imp in *.
+  rewrite sub_eq.
+  rewrite <- subst_ty_prop.
+  unfold subst.
+  unfold Subst_pred_var.
+  unfold subst_pred_var.
+  apply H5.
+  apply vv_sub_env.
+  assumption.
+  assumption.
+  rewrite sub_eq in H2.
+  rewrite <- subst_ty_prop in H2.
+  apply H2.
 Qed.
 
 Lemma subtype_interp :
   forall Γ φ φ' x b,
+    var_not_in ν Γ ->
     subtype Γ { ν : b | φ } { ν : b | φ' } -> 
-    (forall w,
-      sep_env Γ w -> 
-      sep_ty x { ν : b | φ } w ->
-      sep_ty x { ν : b | φ' } w).
+      sep_env Γ |-- sep_ty x { ν : b | φ } --> sep_ty x { ν : b | φ' }.
 Proof.
   intros.
   unfold sep_ty.
   split.
-  apply H1.
-  apply subtype_interp_pred with Γ φ b.
+  apply H2.
+  apply subtype_interp_pred with (Γ := Γ) (φ := φ) (b := b).
   assumption.
+  assumption.
+  assumption.
+  apply H2.
+Qed.
+
+Lemma vv_sub_env_eval :
+  forall e ν x v w,
+    x <> ν -> 
+    eval w (subst (subst_one ν (var_e x)) e)
+    = eval (λ i : var, eval w (subst_one ν v i)) (subst (subst_one ν (var_e x)) e).
+Proof.
+  induction e.
+  + intros. unfold subst, subst_one. reflexivity.
+  + intros. unfold subst, subst_one.
+    foo.
+  + intros. unfold subst, subst_one in *. 
+            unfold Subst_var_expr, subst_var, Language.subst_expr.
+            simpl in *.
+            unfold Subst_var_expr in *.
+            rewrite IHe1 with (v:=v).
+            rewrite IHe2 with (v:=v).
+            reflexivity.
+            assumption.
+            assumption.
+Qed.
+
+Lemma vv_sub_env_prop :
+  forall p ν x v w,
+    x <> ν ->
+    sep_pred (subst (subst_one ν (var_e x)) p) w =
+    sep_pred (subst (subst_one ν (var_e x)) p)
+             (λ i : var, eval w (subst_one ν v i)).
+Proof.
+  intros.
+  induction p.
+  + constructor.
+  + destruct b. unfold subst, Subst_prop, subst_prop. simpl.
+    rewrite <- vv_sub_env_eval with (v := v).
+    rewrite <- vv_sub_env_eval with (v := v).
+    reflexivity.
+    assumption.
+    assumption.
+  + simpl in *. unfold subst in *. unfold imp.
+    rewrite IHp.
+    reflexivity.
+  + simpl. unfold subst, Subst_prop in *. 
+    unfold andp.
+    rewrite IHp1.
+    rewrite IHp2.
+    reflexivity.
+  + simpl. unfold subst, Subst_prop in *. 
+    unfold orp.
+    rewrite IHp1.
+    rewrite IHp2.
+    reflexivity.
+Qed.
+
+Lemma vv_sub_env_ty :
+  forall T x v w,
+    x <> ν ->
+    sep_ty x T w -> 
+    subst (subst_one ν v) (sep_ty x T) w.
+Proof.
+  intros.
+  unfold subst.
+  unfold sep_ty in *.
+  destruct T as [b p].
+  split.
+  destruct H0.
+  clear H1.
+  destruct H0.
+  exists x0.
+  simpl.
   unfold subst_one.
-  
-  
-  intros G p p' x b. 
-  induction G.
-  + intros. inversion H. simpl in *.
-    split. apply H1. apply H4. constructor. apply H1.
-  + intros st w senv st1.
-    
+  destruct (eq_dec x ν). intuition. assumption.
+  rewrite <- vv_sub_env_prop with (v:= v).
+  apply H0.
+  assumption.
+Qed.
 
-
-  w stype.
-  inversion stype; subst.
-  induction G.
-  + destruct xin; inversion H.
-  + destruct a as [ x' t' ].
-    unfold imp, derives in *.
-    unfold var_in in xin.
-    destruct xin as [ ? xin ].
-    apply in_inv in xin.
-    destruct xin as [ xin | xin ].
-    inversion xin; subst.
-    inversion stype. subst.
-    split.
-    apply st1.
-    apply H2.
-    
-
-
-
-    inversion xin; subst.
-    unfold sep_env.
+Lemma subst_vv_env :
+  forall Γ,
+    var_not_in ν Γ ->
+    nonfreevars (sep_env Γ) ν.
+Proof.
+  intros.
+  induction Γ.
+  + constructor.
+  + unfold sep_env. destruct a as [x [b p]].
     fold sep_env.
+    simpl in *.
     split.
-    unfold sep_ty.
-    destruct x0.
-    inversion stype. subst.
-    
-  
-  
-  
-  
-  
+    pose (vv_sub_env_ty { ν : b | p } x v).
+    unfold sep_ty in s.
+    simpl in s.
+    unfold subst, Subst_pred, subst_pred in s.
+    unfold subst.
+    apply s.
+    unfold var_not_in in H.
+    rewrite Forall_forall in H.
+    apply H with (x0 := (x, {ν : b | p })).
+    left. reflexivity.
+    apply H0.
+    apply IHΓ.
+    unfold var_not_in in H.
+    inversion H.
+    apply H4.
+    apply H0.
+Qed.
+
+Lemma sep_env_base_var :
+  forall Γ x b p,
+    (x, { ν : b | p }) ∈ Γ ->
+    sep_env Γ |-- sep_base x b.
+Proof.
+  induction Γ.
+  intros.
+  inversion H.
+  intros.
+  apply in_inv in H.
+  destruct a as [x' [b' p']].
+  destruct H.
+  inversion H.
+  subst.
+  simpl in *.
+  repeat apply andp_left1.
+  intuition.
+  unfold sep_env.
+  fold sep_env.
+  apply andp_left2.
+  apply IHΓ with (p := p).
+  assumption.
+Qed.
 
 Lemma type_interp :
   forall Γ x T,
+    var_not_in ν Γ ->
     expr_type Γ (var_e x) T ->
-    forall w,
-      (sep_env Γ w -> sep_ty x T w).
+    sep_env Γ |-- sep_ty x T.
 Proof.
-  intros Γ x T ET. (* [ ν b φ ]  w SE ET. *)
-  dependent induction ET. 
-  unfold sep_ty.
-  intros w SE.
-  split.
-  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν τ) w).
-    rewrite subst_vv_base_ap. 
-    apply expr_eval_ty with (Γ := Γ) (φ := φ).
-    apply SE.
-    constructor; assumption.
-  + generalize dependent Γ. 
-    induction Γ. 
-    - intros. inversion H.
-    - intros. apply in_inv in H. destruct a. destruct H.
-      * inversion H. subst. apply SE.
-      * apply IHΓ. unfold sep_env in SE.
-        {
-          apply H. 
-        } 
-        {
-          apply SE. 
-        } 
-  + intros w SE.
-    destruct T as [ vv b p ]. destruct T' as [ vv' b' p' ].
-    inversion H.
-    inversion H0.
-    subst.
-    unfold subst_pred.
-    split.
+  intros Γ x T vvnotin ET. (* [ ν b φ ]  w SE ET. *)
+  unfold sep_ty. 
+  dependent induction ET.
+  {
+  simpl in *.
+  apply andp_right.
+  * apply sep_env_base_var with (p := φ).
+    assumption.
+  * generalize dependent Γ.
+    induction Γ.
+    + intuition.
+    + intros.
+      destruct a as [x' [ b' p' ]].
+      apply in_inv in H.
+      destruct H.
+      inversion H; subst.
+      unfold sep_env.
+      fold sep_env.
+      apply andp_left1.
+      unfold sep_ty.
+      apply andp_left2.
+      intuition.
+      unfold sep_env. fold sep_env.
+      apply andp_left2.
+      apply IHΓ.
+      assumption.
+      inversion vvnotin. assumption.
+  }
+  {
+    fold (sep_ty x T) in IHET.
+    fold (sep_ty x T').
+    apply modus_ponens with (P := sep_ty x T).
     apply IHET.
     assumption.
-    unfold andp in IHET.
-    unfold derives, imp in H8.
-    specialize (H8 w SE).
-    specialize (IHET w SE).
-    destruct IHET.
-    
-    apply H8.
-
-Lemma type_interp :
-  forall Γ x T w,
-    sep_env Γ w -> (expr_type Γ (var_e x) T) -> sep_ty x T w.
-Proof.
-  intros Γ x T (* [ ν b φ ] *) w SE ET.
-  unfold sep_ty.
-  subst.
-  dependent induction ET. 
-  split.
-  + fold (subst_pred (subst_one ν (var_e x)) (sep_base ν τ) w).
-    rewrite subst_vv_base_ap. 
-    apply expr_eval_ty with (Γ := Γ) (φ := φ).
-    apply SE.
-    constructor; assumption.
-  + generalize dependent Γ. 
-    induction Γ. 
-    - intros. inversion H.
-    - intros. apply in_inv in H. destruct a. destruct H.
-      * inversion H. subst. apply SE.
-      * apply IHΓ. unfold sep_env in SE.
-        {
-          apply H. 
-        } 
-        {
-          apply SE. 
-        } 
-  + destruct T as [ vv b p ]. destruct T' as [ vv' b' p' ].
-    inversion H.
-    inversion H0.
-    subst.
-    specialize (IHET SE).
-    destruct IHET.
-    split.
+    destruct T, T'.
+    inversion H0; subst.
+    apply subtype_interp.
     assumption.
-    unfold derives, imp in H8.
-    apply H8.
-    
-    
-    
+    assumption.
+  }
 Qed.
 
 Lemma types_interp :
-  forall Γ xs ts s,
-    sep_env Γ s ->
+  forall Γ xs ts,
+    var_not_in ν Γ ->  
     tc_list Γ (combine xs ts) ->
-    sep_env (combine xs ts) s.
+    sep_env Γ |-- sep_env (combine xs ts).
 Proof.
   intros.
   unfold tc_list in H0.
@@ -202,7 +381,9 @@ Proof.
   unfold sep_env.
   induction (combine xs ts).
   + constructor.
-  + destruct a. split.
+  + destruct a. 
+    fold sep_env.
+    apply andp_right.
     apply type_interp with (Γ := Γ).
     assumption. apply H0 with (x := (v,r)). unfold In. left. reflexivity.
     apply IHl. 
@@ -314,6 +495,7 @@ Lemma sep_args_sub :
     xs = subst θ (s_formals S) ->
     ts = subst θ (s_formal_ts S) ->
     tc_list Γ (combine xs ts) ->
+    var_not_in ν Γ -> 
     sep_env Γ w ->
     sep_env (subst θ (combine (s_formals S) (s_formal_ts S))) w.
 Proof.
@@ -325,9 +507,7 @@ Proof.
     reflexivity.
     assumption.
   rewrite C.
-  apply types_interp with Γ.
-  assumption.
-  assumption.
+  apply types_interp with Γ; assumption.
 Qed.
 
 Lemma sep_env_cons :
@@ -378,7 +558,7 @@ Lemma sep_proof_proc_ret :
     (sep_env ((subst θ (s_ret S)) :: Γ) w).
 Proof.
   intros θ S Γ w vvid vvim wfschema wf H.
-  destruct S as [xs arity [x [ vv b p ]]].
+  destruct S as [xs arity [x [ b p ]]].
   inversion wfschema. clear H0 H1. simpl in H2. 
   inversion H2.
   inversion H8. subst.
@@ -458,15 +638,10 @@ Proof.
   assumption.
   assumption.
   assumption.
+  apply wf_env_no_vv; assumption.
   assumption.
   assumption.
-  (**  **)
-  (* inversion H14. *)
-  (* destruct (s_ret S) eqn: sret. *)
-  (* unfold subst, Subst_prod, subst_prod in H18. inversion H18. *)
-  (* rewrite <- H25 in *. *)
-  (* rewrite <- H26 in *. *)
-  (** **)
+  unfold sep_env. fold sep_env.
   unfold derives.
   intro w.
   apply sep_proof_proc_ret.

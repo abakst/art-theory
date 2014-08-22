@@ -23,6 +23,21 @@ Proof.
   rewrite H. reflexivity.
 Qed.
 
+Ltac foo :=
+  simpl in *;
+  subst;
+  intuition;
+  match goal with
+        | [ H : appcontext[eq_dec ?x ?y] |- _ ] => destruct (eq_dec x y); foo
+        | |- appcontext[eq_dec ?x ?y] => destruct (eq_dec x y); foo
+        | [ H : ?θ ?x = ?x, 
+                F : ?θ ?v = ?x,
+                    G : forall v : _, ?θ v = ?x -> v = ?x |- _ ] =>
+          specialize (G v F); contradiction
+        | _ => idtac
+  end; first [ contradiction | reflexivity | intuition].
+
+
 Ltac invProp e1 e2 :=
         match goal with
           | [ H : wf_prop _ (rel_r e1 _ e2) |- _ ] =>
@@ -339,16 +354,81 @@ Proof.
   simpl. reflexivity.
   contradiction n.
   reflexivity.
+Qed. 
+
+(* Lemma subst_vv_expr2 : *)
+(*   forall G θ p x, *)
+(*     disj_subst G θ -> wf_prop G p -> θ x = (var_e x) ->  *)
+(*     forall w, *)
+(*     (sep_pred (subst (subst_one ν (var_e x)) p) (λ i : var, eval w (θ i)) = *)
+(*      sep_pred (subst (subst_one ν (var_e x)) p) w). *)
+(* Proof. *)  
+
+Lemma subst_vv_expr2 :
+  forall G θ e x,
+    disj_subst G θ -> wf_expr G e -> θ x = (var_e x) ->
+    forall w,
+    eval (λ i : var, eval w (θ i))
+      (subst (λ i : var, if eq_dec i ν then var_e x else var_e i) e) =
+    eval w (subst (λ i : var, if eq_dec i ν then var_e x else var_e i) e).
+Proof.
+  intros G sub e x disj wf xid.
+  induction e.
+  + reflexivity.
+  + intro w. unfold subst. simpl.
+    foo. rewrite xid. reflexivity.
+    unfold disj_subst in disj.
+    destruct disj.
+    rewrite H0 with (x := v).
+    reflexivity.
+    inversion wf. 
+    unfold var_in.
+    exists t. assumption.
+    intuition.
+  + intro w.
+    simpl.
+    inversion wf.
+    rewrite IHe1.
+    rewrite IHe2.
+    unfold subst. reflexivity.
+    assumption.
+    assumption.
+Qed.
+    
+Lemma subst_vv_pred2 :
+  forall G θ p x,
+    disj_subst G θ -> wf_prop G p -> θ x = (var_e x) ->
+    forall w,
+    (sep_pred (subst (subst_one ν (var_e x)) p) (λ i : var, eval w (θ i)) =
+     sep_pred (subst (subst_one ν (var_e x)) p) w).
+Proof.
+  intros G sub p x disj wf xxid.
+  unfold subst, Subst_prop, subst_one.
+  induction p.
+  + constructor.
+  + intro w. destruct b. simpl.
+    inversion wf.
+    subst.
+    repeat (rewrite subst_vv_expr2 with (G := G)); first [assumption | reflexivity].
+  + intro w.
+    simpl. unfold imp.
+    rewrite IHp. reflexivity.
+    inversion wf; assumption.
+  + intro w. simpl. unfold andp.
+    inversion wf.
+    f_equal; [ rewrite IHp1 | rewrite IHp2 ]; first [assumption | reflexivity].
+  + intro w. simpl. unfold orp.
+    inversion wf.
+    f_equal; [ rewrite IHp1 | rewrite IHp2 ]; first [assumption | reflexivity].
 Qed.
 
 Lemma sep_ty_split :
   forall x b p,
     forall w, (sep_ty x { ν : b | p } w =
-    ((subst_pred (subst_one ν (var_e x)) (sep_base ν b)) w 
-    /\ (subst_pred (subst_one ν (var_e x)) (sep_pred p) w))).
+    (sep_base x b w
+    /\ (sep_pred (subst (subst_one ν (var_e x)) p) w))).
 Proof.
-  intros.
-  split.
+  reflexivity.
 Qed.
 
 Lemma subst_ty :
@@ -362,13 +442,20 @@ Proof.
   unfold subst_pred.
   rewrite sep_ty_split.
   rewrite sep_ty_split.
-  fold (subst_pred θ (subst_pred (subst_one ν (var_e x)) (sep_pred p)) w).
-  fold (subst_pred θ (subst_pred (subst_one ν (var_e x)) (sep_base ν b)) w).
-  f_equal. 
-  rewrite <- subst_vv_base' with (θ := θ). 
-    reflexivity. assumption. assumption.
-  rewrite <- subst_vv_pred' with (G := G) (θ := θ). 
-    reflexivity. assumption. apply wf_type_prop with (ν := ν) (τ := b).
+  f_equal.
+  fold (subst_pred θ (sep_base x b) w).
+  unfold sep_base, subst_pred.
+  simpl.
+  destruct b.
+  simpl.
+  unfold exp.
+  unfold eval.
+  rewrite H1.
+  reflexivity.
+  rewrite subst_vv_pred2 with (G := G) (θ := θ).
+  reflexivity.
+  assumption.
+  apply wf_type_prop with (ν := ν) (τ := b).
     assumption. assumption.
 Qed.
 
@@ -502,22 +589,13 @@ Proof.
    rewrite <- IHp1.
    rewrite <- IHp2.
    reflexivity.
-Qed.   
+Qed.
 
 Lemma subst_ty_base :
   forall x t θ w,
     subst θ (sep_base x t) w = sep_base (subst θ x) t w.
 Proof.
   reflexivity.
-Qed.
-
-Lemma subst_ty_split :
-  forall x b p θ w,
-    subst θ (sep_ty x { ν : b | p }) w ->
-      subst θ (subst (subst_one ν (var_e x)) (sep_pred p)) w.
-Proof.
-  intros.
-  apply H.
 Qed.
 
 Lemma subst_env_ty :
@@ -686,16 +764,18 @@ Lemma sub_pred_rewrite :
 Proof.
   reflexivity.
 Qed.
-    Ltac unfold_t :=
-      unfold subst in *;
-      unfold subst_one in *;
-      simpl in *;
-      unfold subst in *; simpl in *;
-      unfold Subst_pred_var in *;
-      unfold Subst_pred in *;
-      unfold subst_pred;
-      unfold subst_pred_var in *.
-    
+
+Ltac unfold_t :=
+  unfold subst in *;
+  unfold subst_one in *;
+  simpl in *;
+  unfold subst in *; simpl in *;
+  unfold Subst_pred_var in *;
+  unfold Subst_pred in *;
+  unfold subst_pred;
+  unfold subst_pred_var in *.
+
+(*
 Lemma foo1 :
   forall θ x e w,
     θ ν = ν ->
@@ -910,39 +990,22 @@ Proof.
   split. 
   clear H3.
   simpl.
-  unfold subst.
   unfold Subst_var_var in *. unfold subst_var.
   (** NEW **)
-  rewrite H.
-  unfold subst_one in *.
-  unfold sep_base in *.
   destruct H2.
   exists x0.
   simpl in *.
-  destruct (eq_dec ν ν).
+  rewrite H0 in *.
   apply H2.
-  contradiction n. reflexivity.
   (** NEW **)
-   (** OLD **)
-  (* rewrite H0. rewrite H. *)
-  (* simpl in *. *)
-  (* unfold subst_one in *. *)
-  (* unfold sep_base in *. *)
-  (* destruct H2. *)
-  (* exists x0. *)
-  (* simpl in *. *)
-  (* destruct (eq_dec ν ν). *)
-  (* simpl in H2. *)
-  (* rewrite H0 in H2. apply H2. *)
-  (* contradiction n. reflexivity. *)
-  (** OLD **)
-  simpl.
   unfold subst_one.
   simpl in *.
   unfold subst.
   unfold Subst_var_var.
   unfold subst_var.
-  rewrite H. rewrite H0.
+  rewrite H0.
+  unfold Subst_prop in *.
+  unfold subst_one in *.
   rewrite <- qux. assumption. assumption. assumption. assumption.
   intros.
   destruct H2.
@@ -971,6 +1034,7 @@ Proof.
   rewrite H in H3.
   apply H3.
 Qed.
+*)
 
 Lemma subst_one_is_disj :
   forall G x v,
@@ -995,44 +1059,6 @@ Proof.
     reflexivity.
 Qed.
 
-(* Lemma subst_eval_eq : *)
-(*   forall θ v e1 e2 w, *)
-(*   (eval *)
-(*     (λ i : var, eval w (if eq_dec i ν then var_e (θ v) else var_e i)) *)
-(*     (Subst_var_var_expr θ e) = *)
-(*   eval *)
-(*     (λ i : var, eval w (if eq_dec i ν then var_e (θ v) else var_e i)) *)
-(*     (Subst_var_var_expr θ e0)) -> *)
-(*    eval *)
-(*      (λ i : var, *)
-(*       eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i)) *)
-(*      e = *)
-(*    eval *)
-(*      (λ i : var, *)
-(*       eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i)) *)
-(* ( H1 : (sep_base (θ ν) b && sep_pred (subst_prop_var θ p)) *)
-(*          (λ i : var, eval w (subst_one (θ ν) (var_e (θ v)) i)) *)
-(*   ============================ *)
-(*    (sep_base ν b && sep_pred p) *)
-(*      (λ i : var, *)
-(*       eval (λ i0 : var, eval w (var_e (θ i0))) (subst_one ν (var_e v) i)) *)
-
-Ltac foo :=
-  simpl in *;
-  subst;
-  intuition;
-  match goal with
-        | [ H : appcontext[eq_dec ?x ?y] |- _ ] => destruct (eq_dec x y); foo
-        | |- appcontext[eq_dec ?x ?y] => destruct (eq_dec x y); foo
-        | [ H : ?θ ?x = ?x, 
-                F : ?θ ?v = ?x,
-                    G : forall v : _, ?θ v = ?x -> v = ?x |- _ ] =>
-          specialize (G v F); contradiction
-        | _ => idtac
-  end; first [ contradiction | reflexivity | intuition].
-
-(* *      e0 *) 
-
 Lemma eval_distr :
   forall θ e v w,
     θ ν = ν ->
@@ -1055,59 +1081,18 @@ Proof.
   + simpl. rewrite IHe1. rewrite IHe2. reflexivity.
 Qed.
 
-   (* eval (λ i0 : var, w (θ i0)) (if eq_dec x ν then var_e v else var_e x) = *)
-
-
-  (* H1 : eval w (if eq_dec (θ x) ν then var_e (θ v) else var_e (θ x)) = *)
-  (*      eval (λ i : var, eval w (if eq_dec i ν then var_e (θ v) else var_e i)) *)
-  (*        (subst θ e2) *)
-  (* ============================ *)
-  (*  eval (λ i0 : var, w (θ i0)) (if eq_dec x ν then var_e v else var_e x) = *)
-  (*  eval *)
-  (*    (λ i : var, *)
-  (*     eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i)) *)
-  (*    e2 *)
-
-
-(* Lemma subst_expr_distr : *)
-(*   forall θ x e2 v w, *)
-(*     θ ν = ν -> *)
-(*     (forall v, θ v = ν -> v = ν) -> *)
-(*   (sep_pred (subst_prop_var θ ((var_e x) .= e2)) *)
-(*            (λ i : var, *)
-(*                   eval w (if eq_dec i (θ ν) then var_e (θ v) else var_e i)) <-> *)
-(*    (eval *)
-(*      (λ i : var, *)
-(*       eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i)) *)
-(*      (var_e x) = *)
-(*    eval *)
-(*      (λ i : var, *)
-(*       eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i)) *)
-(*      e2)). *)
-(* Proof. *)
-(*   intros. *)
-(*   unfold subst_prop_var. *)
-(*   simpl. *)
-(*   constructor. *)
-(*   rewrite H in *. *)
-(*   intro.  *)
-(*   pose (eval_distr θ (var_e x) v w H H0). *)
-(*   simpl in *. *)
-(*   rewrite e in H1. *)
-(*   rewrite H in *. *)
-
 Lemma expr_subst_eq_1 :
   forall θ e v w,
     θ ν = ν ->
     (forall v, θ v = ν -> v = ν) ->
-  eval (λ i : var, eval w (if eq_dec i ν then var_e (θ v) else var_e i))
-       (subst θ e)
-  =
-   eval (λ i : var,
-               eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i))
-        e.
+   (eval w
+     (subst (λ i : var, if eq_dec i ν then var_e (θ v) else var_e i)
+        (subst θ e)) =
+    eval (λ i : var, w (θ i))
+       (subst (λ i : var, if eq_dec i ν then var_e v else var_e i) e)).
 Proof.
   intros.
+  unfold subst. unfold Subst_var_expr. unfold Language.subst_expr.
   induction e.
   reflexivity.
   foo.
@@ -1121,21 +1106,18 @@ Lemma subst_expr_distr :
   forall θ e1 e2 v w,
     θ ν = ν ->
     (forall v, θ v = ν -> v = ν) ->
-  (sep_pred (subst_prop_var θ (e1 .= e2))
-           (λ i : var,
-                  eval w (if eq_dec i (θ ν) then var_e (θ v) else var_e i)) <->
-   (eval
-     (λ i : var,
-      eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i))
-     e1 =
-   eval
-     (λ i : var,
-      eval (λ i0 : var, w (θ i0)) (if eq_dec i ν then var_e v else var_e i))
-     e2)).
+   (eval w
+     (subst (λ i : var, if eq_dec i ν then var_e (θ v) else var_e i)
+        (subst θ e1)) =
+   eval w
+     (subst (λ i : var, if eq_dec i ν then var_e (θ v) else var_e i)
+        (subst θ e2))
+   ↔ eval (λ i : var, w (θ i))
+       (subst (λ i : var, if eq_dec i ν then var_e v else var_e i) e1) =
+     eval (λ i : var, w (θ i))
+       (subst (λ i : var, if eq_dec i ν then var_e v else var_e i) e2)).
 Proof.
   intros.
-  rewrite H.
-  simpl.
   rewrite expr_subst_eq_1.
   rewrite expr_subst_eq_1.
   reflexivity.
@@ -1143,24 +1125,40 @@ Proof.
   assumption.
   assumption.
   assumption.
-Qed.  
+Qed.
     
+Lemma subst_base_distr :
+  forall θ b v w,
+  sep_base (θ v) b w <->
+  sep_base v b (λ i : var, eval w (var_e (θ i))).
+Proof.
+  intros θ b v w.
+  unfold subst.
+  unfold sep_base.
+  simpl.
+  constructor;
+  intro;
+  destruct H;
+  exists x;
+  foo.
+Qed.
+
 Lemma subst_prop_distr :
   forall θ v p w,
    (θ ν = ν) ->
    (forall v, θ v = ν -> v = ν) ->
-   ((sep_pred (subst_prop_var θ p))
-     (λ i : var, eval w (subst_one (θ ν) (var_e (θ v)) i)) <->
-   (sep_pred p)
-     (λ i : var,
-      eval (λ i0 : var, eval w (var_e (θ i0))) (subst_one ν (var_e v) i))).
+  (sep_pred
+           (Subst_prop (subst_one ν (var_e (θ v))) (subst_prop_var θ p)) w
+   <->
+   (sep_pred (Subst_prop (subst_one ν (var_e v)) p)
+     (λ i : var, eval w (var_e (θ i))))).
 Proof.
   intros.
   induction p.
   + constructor; reflexivity.
   + destruct b.
     unfold subst_one.
-    unfold sep_pred.
+    simpl.
     apply subst_expr_distr.
     assumption.
     assumption.
@@ -1186,25 +1184,6 @@ Proof.
     auto.
 Qed.
 
-Lemma subst_base_distr :
-  forall θ b v w,
-  sep_base ν b (λ i : var, eval w (subst_one ν (var_e (θ v)) i)) <->
-  sep_base ν b
-           (λ i : var,
-                  eval (λ i0 : var, eval w (var_e (θ i0))) (subst_one ν (var_e v) i)).
-Proof.
-  intros θ b v w.
-  unfold subst.
-  unfold sep_base.
-  unfold subst_one.
-  simpl.
-  constructor;
-  intro;
-  destruct H;
-  exists x;
-  foo.
-Qed.
-
 Lemma subst_ty_distr :
   forall θ v b p w,
    θ ν = ν ->
@@ -1219,7 +1198,6 @@ Proof.
   unfold Subst_pred_var, subst_pred_var.
   unfold Subst_var_var, subst_var.
   unfold subst_pred, Subst_prop_var.
-  rewrite vvid.
   constructor.
   intros [ base prop ].
   split.
@@ -1227,11 +1205,10 @@ Proof.
   apply subst_prop_distr.
   assumption.
   assumption.
-  rewrite vvid; apply prop.
+  assumption.
   intros [ base prop ].
   split.
   apply subst_base_distr; assumption.
-  rewrite <- vvid.
   apply subst_prop_distr.
   assumption.
   assumption.
@@ -1250,15 +1227,8 @@ Proof.
   induction xts.
   + constructor; reflexivity.
   + intros θ w vvid vvuniq wf.
-    destruct a as [x' [vv b p]].
-    assert (vveq : subst θ vv = ν).
-    apply wf_vv_is_uniq_list with 
-      (vv := subst θ vv)
-      (x := subst θ x') (b := b) (p := subst θ p) (Γ := Γ) (xts := (subst θ xts)). 
+    destruct a as [x' [b p]].
     rewrite subst_distr_pair_cons in wf.
-    assumption.
-    apply vvuniq in vveq.
-    rewrite vveq in *.
     unfold subst.
     unfold Subst_pred_var.
     unfold subst_pred_var.
@@ -1287,37 +1257,58 @@ Proof.
     apply H.
 Qed.
 
-Lemma vv_not_free_sep_env :
-  forall G,
-    var_not_in ν G -> 
-    nonfreevars (sep_env' G) ν.
-Proof.
-  induction G.
-  + constructor.
-  + intros.
-    unfold var_not_in in H.
-    rewrite Forall_forall in H.
-    destruct a as [x [vv b p]].
-    specialize (H (x,{vv : b | p})).
-    unfold sep_env'. fold sep_env'.
-    split.
-    destruct H0.
-    unfold sep_ty'.
-    split.
-    unfold sep_ty' in H0.
-    destruct H0.
-    unfold sep_base.
-    destruct H0.
-    exists x0.
-    simpl. unfold subst_one.
-    foo.
-    unfold subst_one.
+(* Lemma vv_not_free_pred : *)
+(*   forall G p, *)
+(*     var_not_in ν G -> *)
+
+(* Lemma vv_not_free_sep_env : *)
+(*   forall G, *)
+(*     var_not_in ν G ->  *)
+(*     nonfreevars (sep_env G) ν. *)
+(* Proof. *)
+(*   induction G. *)
+(*   + constructor. *)
+(*   + intros. *)
+(*     unfold var_not_in in H. *)
+(*     rewrite Forall_forall in H. *)
+(*     destruct a as [x [b p]]. *)
+(*     specialize (H (x,{ν : b | p})). *)
+(*     unfold sep_env. fold sep_env. *)
+(*     simpl in *. *)
+(*     split. *)
+(*     split. *)
+(*     destruct H0. *)
+(*     destruct H0. *)
+(*     destruct H0. *)
+(*     exists x0. *)
+(*     unfold subst_one. *)
+(*     simpl. *)
+(*     destruct (eq_dec x ν). *)
+(*     exfalso. *)
+(*     apply H. *)
+(*     left. reflexivity. apply e. *)
+(*     assumption. *)
+(*     (* MEAT *) *)
+(*     destruct H0. *)
+(*     destruct H0. *)
+(*     unfold subst, Subst_prop in *. *)
+
+(*     unfold sep_ty'. *)
+(*     split. *)
+(*     unfold sep_ty' in H0. *)
+(*     destruct H0. *)
+(*     unfold sep_base. *)
+(*     destruct H0. *)
+(*     exists x0. *)
+(*     simpl. unfold subst_one. *)
+(*     foo. *)
+(*     unfold subst_one. *)
 
 
-    destruct H.
-    left. reflexivity.
+(*     destruct H. *)
+(*     left. reflexivity. *)
     
-    unfold sep_env.
-    fold sep_env.
-    split.
-    destruct H0.
+(*     unfold sep_env. *)
+(*     fold sep_env. *)
+(*     split. *)
+(*     destruct H0. *)

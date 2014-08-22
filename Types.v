@@ -41,8 +41,7 @@ Inductive reft_prop : Set :=
   | or_r   : reft_prop -> reft_prop -> reft_prop.
 
 Record reft_type : Set := 
-  mkReft_type { reft_vv: var;
-                reft_base: base_type;
+  mkReft_type { reft_base: base_type;
                 reft_r: reft_prop } .
 
 Fixpoint subst_prop_var (s : subst_t var var) prop :=
@@ -67,13 +66,11 @@ Instance Subst_prop_var : Subst reft_prop var var := subst_prop_var.
 Instance Subst_prop : Subst reft_prop var expr := subst_prop.
 
 Definition subst_r_var (s : subst_t var var) reft :=
-  mkReft_type (subst s (reft_vv reft))
-              (reft_base reft)
+  mkReft_type (reft_base reft)
               (subst s (reft_r reft)).
 
 Definition subst_r s reft :=
-  mkReft_type (reft_vv reft)
-              (reft_base reft)
+  mkReft_type (reft_base reft)
               (subst s (reft_r reft)).
 
 Instance Subst_reft_var : Subst reft_type var var := subst_r_var.
@@ -94,8 +91,11 @@ Definition subst_schema s S :=
   end.
 Instance Subst_proc_schema : Subst proc_schema var var := subst_schema.
 
+Definition dummyt (v : var) t p := mkReft_type t p.
+
 Notation "x .= y" := (rel_r x eq_brel y) (at level 70).
-Notation "{ v : t | P }" := (mkReft_type v t P%reft) (at level 0, v at level 99, no associativity).
+(* Notation "{ vv : t | P }" := (mkReft_type t P%reft) (at level 0, no associativity). *)
+Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, no associativity).
 
 
 (** Environments **)

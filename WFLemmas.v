@@ -230,34 +230,27 @@ Proof.
   assumption.
 Qed.
 
-Lemma wf_vv_is_uniq :
-  forall x vv b p xts,
-    wf_env ((x, {vv : b | p}) :: xts) ->
-    vv = ν.
+Lemma wf_env_no_vv :
+  forall Γ,
+    wf_env Γ -> var_not_in ν Γ.
 Proof.
-  intros x vv b p xts wf.
-  inversion wf.
-  match goal with 
-    | [ H : wf_type _ { vv : _ | _ } |- vv = ν ] => 
-      inversion H; subst; reflexivity
-  end.
-Qed.
-
-Lemma wf_vv_is_uniq_list :
-  forall (x : var) vv b p Γ xts,
-    Forall (fun xt => wf_type Γ (snd xt)) ((x, { vv : b | p }) :: xts) ->
-    vv = ν.
-Proof.
-  intros.
-  rewrite Forall_forall in H.
-  specialize (H (x,{ vv : b | p })).
-  assert (wf_type Γ { vv : b | p }).
-  apply H.
-  unfold In.
-  left.
-  reflexivity.
-  inversion H0.
-  reflexivity.
+  induction Γ.
+  + intuition.
+  + destruct a as [ x t ].
+    intro wf.
+    inversion wf.
+    subst.
+    unfold var_not_in in *. rewrite Forall_forall in *.
+    intros [ x' t' ].
+    intro x'in.
+    apply in_inv in x'in.
+    destruct x'in.
+    inversion H.
+    subst.
+    assumption.
+    apply IHΓ.
+    assumption.
+    assumption.
 Qed.
 
 Hint Unfold wf_subst.

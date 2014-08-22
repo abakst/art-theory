@@ -30,26 +30,13 @@ Fixpoint sep_pred (p:reft_prop) : pred world :=
 
 Definition sep_ty (x:var) (t:reft_type) : pred world :=
   match t with
-  | mkReft_type v b p => subst_pred (subst_one v (var_e x)) 
-                                    ((sep_base v b)
-                                       && (sep_pred p))
-  end.
-
-Definition sep_ty' (x:var) (t:reft_type) : pred world :=
-  match t with
-  | mkReft_type v b p => sep_base x b && (sep_pred (subst (subst_one v (var_e x)) p))
+  | mkReft_type b p => sep_base x b && (sep_pred (subst (subst_one ν (var_e x)) p))
   end.
 
 Fixpoint sep_env (Γ : type_env) : pred world :=
   match Γ with
     | nil => TT
     | (x,t) :: Γ' => sep_ty x t && sep_env Γ'
-  end.
-
-Fixpoint sep_env' (Γ : type_env) : pred world :=
-  match Γ with
-    | nil => TT
-    | (x,t) :: Γ' => sep_ty' x t && sep_env' Γ'
   end.
 
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 
