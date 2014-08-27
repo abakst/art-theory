@@ -115,11 +115,14 @@ Definition join_var Ξ Γ1 Γ2 xt :=
   match xt with
   | (x, t) =>
     (exists t1, ((x,t1) ∈ Γ1 /\ subtype Γ1 Ξ t1 t))
-    /\ (exists t2, ((x,t2) ∈ Γ1 /\ subtype Γ2 Ξ t2 t))
+    /\ (exists t2, ((x,t2) ∈ Γ2 /\ subtype Γ2 Ξ t2 t))
   end.
 
 Definition join_env Ξ Γ1 Γ2 Γ :=
-  Forall (fun xt => xt ∈ Γ /\ wf_type Γ (snd xt) /\ join_var Ξ Γ1 Γ2 xt) Γ.
+  wf_env Γ 
+  /\ (forall xt, (xt ∈ Γ1 /\ xt ∈ Γ2) <-> xt ∈ Γ)
+  /\ Forall (fun xt => wf_type Γ (snd xt) 
+                       /\ join_var Ξ Γ1 Γ2 xt) Γ.
   
                               
 Inductive stmt_type : proc_env -> type_env -> guards -> stmt -> type_env -> Prop :=
@@ -149,12 +152,13 @@ Inductive stmt_type : proc_env -> type_env -> guards -> stmt -> type_env -> Prop
   ((Φ ; Γ ; Ξ)  ⊢ assign_s v e ::: ((v, { ν : τ | (var_e ν) .= e }) :: Γ))
     
 | t_if : 
-    forall Φ Γ Γ1 Γ2 Γ' Ξ x s1 s2, 
-      ( Φ ; Γ ; ((var_e x) .= (int_v 1)) :: Ξ ) ⊢ s1 ::: Γ1 -> 
-      ( Φ ; Γ ; (not_r ((var_e x) .= (int_v 1))) :: Ξ) ⊢ s2 ::: Γ2 ->
+    forall Φ Γ Γ1 Γ2 Γ' Ξ e p s1 s2, 
+      expr_type Γ Ξ e { ν : int_t | p } ->
+      ( Φ ; Γ ; (not_r (e .= (int_v 0))) :: Ξ ) ⊢ s1 ::: Γ1 -> 
+      ( Φ ; Γ ; (e .= (int_v 0)) :: Ξ) ⊢ s2 ::: Γ2 ->
       join_env Ξ Γ1 Γ2 Γ' ->
 (* ------------------------------------------------------------------- *)
-  ((Φ ; Γ ; Ξ) ⊢ if_s x s1 s2 ::: Γ')
+  ((Φ ; Γ ; Ξ) ⊢ if_s e s1 s2 ::: Γ')
 
 | t_seq : forall Φ Ξ Γ Γ' Γ'' s1 s2,
   (Φ ; Γ ; Ξ) ⊢ s1 ::: Γ' -> (Φ ; Γ' ; Ξ) ⊢ s2 ::: Γ'' ->

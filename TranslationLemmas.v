@@ -814,6 +814,294 @@ Proof.
   apply sep_guards_pure.
 Qed.
 
+Lemma subtype_same_base :
+  forall Ξ Γ b b' p p',
+    subtype Γ Ξ { ν : b | p } { ν : b' | p' } ->
+    subtype Γ Ξ { ν : b | p } { ν : b | p' }.
+Proof.
+  intros.
+  inversion H.
+  subst.
+  assumption.
+Qed.
+
+Lemma types_interp2 :
+  forall Ξ Γ Γ', 
+    wf_env Γ -> wf_guards Γ Ξ ->
+   (forall x t, (x,t) ∈ Γ' -> (exists t1, (x,t1) ∈ Γ /\ subtype Γ Ξ t1 t)) ->
+   sep_env Γ && sep_guards Ξ |-- sep_env Γ'.
+Proof.
+  intros Ξ Γ Γ' wfe wfg H.
+  induction Γ' as [| [x t]].
+  + firstorder.
+  + simpl.
+    apply andp_right.
+    specialize (H x t).
+    destruct H. left. reflexivity.
+    destruct t as [b p].
+    destruct x0 as [b0 p0].
+    apply modus_ponens with (P := sep_ty x { ν : b0 | p0 }).
+    apply type_interp.
+    apply wf_env_no_vv.
+    exact wfe.
+    constructor.
+    apply H.
+    assumption.
+    destruct H as [mem st].
+    inversion st. subst.
+    apply subtype_interp.
+    apply wf_env_no_vv.
+    exact wfe.
+    exact wfg.
+    apply st.
+    apply IHΓ'.
+    intros x0 t0 x0mem.
+    apply H.
+    right.
+    apply x0mem.
+Qed.
+
+Lemma join_swap :
+  forall Γ1 Γ2 Γ' Ξ,
+    join_env Ξ Γ1 Γ2 Γ' <-> join_env Ξ Γ2 Γ1 Γ'.
+Proof.
+  intros.
+  unfold join_env.
+  constructor.
+  intros [a [b c]].
+  split.
+  assumption.
+  split.
+  intros xt.
+  specialize (b xt).
+  rewrite and_comm.
+  apply b.
+  unfold join_var in *.
+  rewrite Forall_forall in *.
+  intros [x t].
+  intro.
+  destruct c with (x,t).
+  apply H.
+  split.
+  apply H0.
+  rewrite and_comm.
+  apply H1.
+  intros [a [b c]].
+  split.
+  assumption.
+  split.
+  intros xt.
+  specialize (b xt).
+  rewrite and_comm.
+  apply b.
+  unfold join_var in *.
+  rewrite Forall_forall in *.
+  intros [x t].
+  intro.
+  destruct c with (x,t).
+  apply H.
+  split.
+  apply H0.
+  rewrite and_comm.
+  apply H1.
+Qed.
+  
+Lemma join_interp :
+  forall Γ1 Γ2 Γ' Ξ ,
+    wf_env Γ1 -> wf_env Γ2 -> wf_guards Γ1 Ξ ->
+    join_env Ξ Γ1 Γ2 Γ' ->
+    (sep_env Γ1 && sep_guards Ξ) |-- sep_env Γ' && sep_guards Ξ.
+Proof.
+  intros until Ξ.
+  intros wf1 wf2 wfg J.
+  apply andp_right.
+  destruct J as [wfJ [J1 J2]].
+  rewrite Forall_forall in J2.
+  unfold join_var in J2.
+  apply types_interp2.
+  assumption.
+  assumption.
+  intros x t xtmem.
+  specialize (J2 (x,t) xtmem).
+  apply J2.
+  firstorder.
+Qed.
+
+
+  (* s1 : stmt *)
+  (* s2 : stmt *)
+  (* e : expr *)
+  (* t : reft_type *)
+  (* wf : wf_env Γ *)
+  (* wfg : wf_guards Γ Ξ *)
+  (* et : expr_type Γ Ξ e t *)
+  (* H1 : (Φ; Γ; not_r (e .= int_v 0) :: Ξ)⊢s1 ::: (Γ1) *)
+  (* H2 : (Φ; Γ; (e .= int_v 0) :: Ξ)⊢s2 ::: (Γ2) *)
+  (* joinenv : join_env Ξ Γ1 Γ2 Γ' *)
+  (* IH1 : wf_env Γ *)
+  (*       → wf_guards Γ (not_r (e .= int_v 0) :: Ξ) *)
+  (*         → sep_proc_env Φ |-  *)
+  (*           {{sep_env Γ * sep_guards (not_r (e .= int_v 0) :: Ξ)}}s1 *)
+  (*           {{sep_env Γ1 * sep_guards (not_r (e .= int_v 0) :: Ξ)}} *)
+  (* IH2 : wf_env Γ *)
+  (*       → wf_guards Γ ((e .= int_v 0) :: Ξ) *)
+  (*         → sep_proc_env Φ |-  *)
+  (*           {{sep_env Γ * sep_guards ((e .= int_v 0) :: Ξ)}}s2 *)
+  (*           {{sep_env Γ2 * sep_guards ((e .= int_v 0) :: Ξ)}} *)
+  (* ============================ *)
+Lemma sep_proof_if_derives :
+  forall Ξ Γ Γ1 Γ2 Γ' e t g,
+    wf_env Γ ->
+    wf_env Γ1 ->
+    wf_env Γ2 ->
+    wf_guards Γ Ξ ->
+    wf_guards Γ1 Ξ ->
+    wf_guards Γ2 Ξ ->
+    join_env Ξ Γ1 Γ2 Γ' ->
+    expr_type Γ Ξ e t ->
+    (* (Φ; Γ; not_r (e .= int_v 0) :: Ξ)⊢s1 ::: (Γ1) -> *)
+    (* (Φ; Γ; (e .= int_v 0) :: Ξ)⊢s2 ::: (Γ2) -> *)
+    sep_env Γ1 * sep_guards (g :: Ξ) |-- sep_env Γ' && sep_guards Ξ.
+Proof.
+  intros until g. intros wf wf1 wf2 wfg wfg1 wfg2 joinenv et.
+  rewrite sepcon_pure_andp.
+2: apply sep_env_pure.
+2: apply sep_guards_pure.
+  apply derives_cut with (Q := sep_env Γ1 && sep_guards Ξ). firstorder.
+  apply join_interp with (Γ2 := Γ2); assumption.
+Qed.
+
+Lemma wf_guard_expr_type1 :
+  forall Γ Ξ e t,
+    wf_env Γ ->
+    expr_type Γ Ξ e t ->
+    wf_guard Γ (not_r (e .= int_v 0)).
+Proof.
+  intros.
+  split.
+  repeat constructor.
+  apply wf_expr_ty_expr with Ξ t.
+    assumption.
+  simpl. rewrite  app_nil_r.
+  apply wf_expr_ty_expr_fv with Γ Ξ t; assumption.
+Qed.
+
+Lemma wf_guard_expr_type2 :
+  forall Γ Ξ e t,
+    wf_env Γ ->
+    expr_type Γ Ξ e t ->
+    wf_guard Γ (e .= int_v 0).
+Proof.
+  intros.
+  split.
+  repeat constructor.
+  apply wf_expr_ty_expr with Ξ t.
+    assumption.
+  simpl. rewrite  app_nil_r.
+  apply wf_expr_ty_expr_fv with Γ Ξ t; assumption.
+Qed.
+
+Lemma sep_proof_if :
+  forall Φ Ξ Γ Γ1 Γ2 Γ' s1 s2 e t,
+    wf_env Γ ->
+    wf_guards Γ Ξ ->
+    expr_type Γ Ξ e t ->
+    (Φ; Γ; not_r (e .= int_v 0) :: Ξ)⊢s1 ::: (Γ1) ->
+    (Φ; Γ; (e .= int_v 0) :: Ξ)⊢s2 ::: (Γ2) ->
+    join_env Ξ Γ1 Γ2 Γ' ->
+    (wf_env Γ
+         → wf_guards Γ (not_r (e .= int_v 0) :: Ξ)
+           → sep_proc_env Φ |- 
+             {{sep_env Γ * sep_guards (not_r (e .= int_v 0) :: Ξ)}}s1
+             {{sep_env Γ1 * sep_guards (not_r (e .= int_v 0) :: Ξ)}}) ->
+    (wf_env Γ
+       → wf_guards Γ ((e .= int_v 0) :: Ξ)
+         → sep_proc_env Φ |- 
+           {{sep_env Γ * sep_guards ((e .= int_v 0) :: Ξ)}}s2
+           {{sep_env Γ2 * sep_guards ((e .= int_v 0) :: Ξ)}}) ->
+    sep_proc_env Φ |- {{ sep_env Γ && sep_guards Ξ }} 
+                        if_s e s1 s2 
+                        {{ sep_env Γ' && sep_guards Ξ }}.
+Proof.
+  intros until t.
+  intros wf wfg et H1 H2 joinenv IH1 IH2.
+  assert (WF1 : wf_env Γ1).
+    apply wf_env_stmt with Φ Γ ((not_r (e .= int_v 0)) :: Ξ) s1; assumption.
+  assert (WF2 : wf_env Γ2).
+    apply wf_env_stmt with Φ Γ (((e .= int_v 0)) :: Ξ) s2; assumption.
+  assert (WFG1 : wf_guards Γ1 (not_r (e .= int_v 0) :: Ξ)).
+    apply wf_guards_stmt with Φ Γ s1. assumption. assumption.
+    apply Forall_cons. 
+      apply wf_guard_expr_type1 with Ξ t; assumption. 
+      assumption.
+  assert (WFG2 : wf_guards Γ2 ((e .= int_v 0) :: Ξ)).
+    apply wf_guards_stmt with Φ Γ s2. assumption. assumption.
+    apply Forall_cons. 
+      apply wf_guard_expr_type2 with Ξ t; assumption. 
+      assumption.
+  (* unfold sep_guards in IH1, IH2. fold sep_guards in IH1, IH2. simpl in IH1, IH2. *)
+  apply semax_if.
+  rewrite andp_comm.
+  rewrite andp_assoc.
+  rewrite andp_comm with (P := sep_guards Ξ).
+  apply semax_pre_post with (P' := sep_env Γ * (eval_to e (int_v 0) --> FF) && sep_guards Ξ)
+                            (Q' := sep_env Γ1 * sep_guards ((not_r (e .= int_v 0)) :: Ξ)).
+  firstorder.
+  apply sep_proof_if_derives with Γ Γ2 e t. 
+    assumption.
+    assumption.
+    assumption.
+    assumption.
+    inversion WFG1; assumption.
+    inversion WFG2; assumption.
+    assumption.
+    assumption.
+  unfold sep_guards in IH1. fold sep_guards in IH1.
+  unfold sep_guards. fold sep_guards.
+  unfold sep_pred at 1 in IH1.
+  simpl in IH1.
+  simpl.
+  unfold eval_to.
+  simpl.
+  rewrite sepcon_pure_andp.
+  rewrite andp_assoc.
+  rewrite <- sepcon_pure_andp.
+  apply IH1.
+  assumption.
+  apply Forall_cons.
+    apply wf_guard_expr_type1 with Ξ t; assumption.
+    assumption.
+  firstorder.
+  firstorder.
+  firstorder.
+  firstorder.
+  apply semax_pre_post with (P' := sep_env Γ * eval_to e (int_v 0) && sep_guards Ξ)
+                            (Q' := sep_env Γ2 * sep_guards ((e .= int_v 0) :: Ξ)).
+  firstorder.
+  apply sep_proof_if_derives with Γ Γ1 e t; 
+    repeat first [ assumption | inversion WFG1; assumption | inversion WFG2; assumption].
+  apply join_swap. assumption.
+  unfold sep_guards in IH2. fold sep_guards in IH2.
+  unfold sep_guards. fold sep_guards.
+  unfold sep_pred at 1 in IH2.
+  simpl in IH2.
+  simpl.
+  unfold eval_to.
+  simpl.
+  rewrite sepcon_pure_andp.
+  rewrite andp_assoc.
+  rewrite <- sepcon_pure_andp.
+  apply IH2.
+  assumption.
+  apply Forall_cons.
+    apply wf_guard_expr_type2 with Ξ t; assumption.
+    assumption.
+  firstorder.
+  firstorder.
+  firstorder.
+  firstorder.
+Qed.
+
 Theorem sep_proof_stmt :
   forall Φ Ξ Γ Γ' s (J : (Φ ; Γ ; Ξ) ⊢ s ::: Γ'),
     wf_env Γ ->
@@ -833,7 +1121,12 @@ Proof.
     econstructor; eauto.
     assumption.
     assumption.
-  + 
+  + repeat rewrite sepcon_pure_andp.
+    apply sep_proof_if with Γ1 Γ2 { ν : int_t | p }; assumption.
+    firstorder.
+    firstorder.
+    firstorder.
+    firstorder.
   + apply semax_seq with (Q := sep_env Γ' * sep_guards Ξ).
     apply IHJ1; assumption.
     apply IHJ2. 

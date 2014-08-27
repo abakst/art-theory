@@ -46,7 +46,7 @@ Inductive stmt :=
   | assign_s : var -> expr -> stmt
   | proc_s   : pname -> list var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
   | seq_s    : stmt -> stmt -> stmt
-  | if_s     : var -> stmt -> stmt -> stmt.
+  | if_s     : expr -> stmt -> stmt -> stmt.
 
 Definition proc := proc' stmt.
 Definition mkProc := Build_proc' stmt.

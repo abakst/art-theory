@@ -3,6 +3,7 @@ Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
 Require Import List.
 Import ListNotations.
+Require Import Coq.Program.Equality.
 
 Require Import Translation.
 Require Import Types.
@@ -66,6 +67,19 @@ Proof.
   pair_crush' False wf_type.
 Qed.
 
+Lemma wf_expr_ty_expr :
+  forall Γ Ξ e T,
+    expr_type Γ Ξ e T -> 
+    wf_expr Γ e.
+Proof.
+  intros ? ? ? ? H.
+  dependent induction H.
+  + constructor.
+  + apply wf_var with { ν : τ | φ }. 
+    assumption.
+  + apply IHexpr_type.
+Qed.
+ 
 Ltac invert_wf_expr :=
   match goal with
     | [ e1 : expr, e2 : expr, H : wf_expr _ (fun_e _ ?e1 ?e2) |- appcontext[?e1] ] =>
@@ -206,6 +220,28 @@ Proof.
   + assumption.
 Qed.
 
+Lemma wf_env_nonmem :
+  forall x t G, (x,t) ∈ G -> wf_env G -> x <> ν.
+Proof.
+  induction G as [| [x' t']].
+  + intuition.
+  + intros InH WfH.
+    apply in_inv in InH.
+    inversion WfH. subst.
+    destruct InH. 
+    inversion H.
+    subst.
+    assumption.
+    apply IHG; assumption.
+Qed.
+
+Lemma wf_env_join :
+  forall  (X : guards) (G G' G'' : type_env),
+      join_env X G' G'' G -> wf_env G.
+Proof. 
+  intros. apply H.
+Qed.
+    
 Lemma wf_env_stmt :
   forall P G G' X s,
     wf_env G ->
@@ -225,7 +261,7 @@ Proof.
       apply wf_var with (t := { ν : τ0 | φ0}).
       unfold In. right. assumption.
       apply IHexpr_type; assumption.
-  + assumption.
+  + apply wf_env_join with (X := Ξ) (G' := Γ1) (G'' := Γ2); assumption.
   + apply IHJ2. apply IHJ1. assumption.
 Qed.
 
@@ -261,21 +297,120 @@ Proof.
   apply xmem.
 Qed.
 
+Lemma env_monotonic :
+  forall P X G G' s,
+    (P ; G ; X) ⊢ s ::: G' ->
+    Forall (fun xt => xt ∈ G') G.
+Proof.
+  intros.
+  rewrite Forall_forall.
+  induction H.
+  + auto.
+  + intros x xin.
+    right. assumption.
+  + intros x xin.
+    right. assumption.
+  + intros x' x'in. 
+    unfold join_env in H2.
+    destruct H2.
+    destruct H3.
+    specialize (H3 x').
+    apply H3.
+    split.
+    apply IHstmt_type1.
+    assumption.
+    apply IHstmt_type2.
+    assumption.
+  + intros.
+    apply IHstmt_type2.
+    apply IHstmt_type1.
+    assumption.
+Qed.
+
+Lemma wf_expr_bigger :
+  forall G G' e,
+    wf_expr G e ->
+    Forall (fun xt => xt ∈ G') G ->
+    wf_expr G' e.
+Proof.
+  intros.
+  rewrite Forall_forall in H0.
+  induction e.
+  + constructor.
+  + inversion H.
+    apply wf_var with (t := t).
+    apply H0.
+    assumption.
+    apply wf_vv.
+  + inversion H.
+    constructor.
+    apply IHe1; assumption.
+    apply IHe2; assumption.
+Qed.
+
+Lemma wf_prop_bigger :
+  forall G G' p,
+    wf_prop G p ->
+    Forall (fun xt => xt ∈ G') G ->
+    wf_prop G' p.
+Proof.
+  intros.
+  induction p.
+  + constructor.
+  + inversion H; constructor; apply wf_expr_bigger with (G := G); assumption. 
+  + inversion H; constructor; apply IHp; assumption.
+  + inversion H. constructor. apply IHp1. assumption. apply IHp2. assumption.
+  + inversion H. constructor. apply IHp1. assumption. apply IHp2. assumption.
+Qed.
+
+Lemma wf_guard_bigger :
+  forall G G' g,
+    wf_guard G g ->
+    Forall (fun xt => xt ∈ G') G ->
+    wf_guard G' g.
+Proof.
+  intros.
+  split.
+  apply wf_prop_bigger with (G := G).  apply H. assumption.
+  apply H.
+Qed.  
+
 Lemma wf_guards_stmt :
   forall P G G' X s,
+    (P ; G ; X) ⊢ s ::: G' ->
     wf_env G ->
     wf_guards G X ->
-    (P ; G ; X) ⊢ s ::: G' ->
     wf_guards G' X.
 Proof.
-  intros P G G' X s wfenv wfguards J.
+  intros P G G' X s J wfenv wfguards.
   induction J.
   + assumption.
   + apply wf_guards_cons; assumption.
   + apply wf_guards_cons; assumption.
-  + assumption.
-  + apply IHJ2.
-    apply (wf_env_stmt Φ Γ Γ' Ξ s1).
+  + destruct H0.
+    destruct H1.
+    unfold wf_guards.
+    rewrite Forall_forall.
+    intros x' x'in.
+    apply wf_guard_bigger with (G := Γ).
+    unfold wf_guards in wfguards.
+    rewrite Forall_forall in wfguards.
+    apply wfguards.
+    assumption.
+    rewrite Forall_forall.
+    intros [x'' t''] x''in.
+    apply H1.
+    split.
+    pose (env_monotonic Φ _ Γ Γ1 s1 J1) as monotonic.
+    rewrite Forall_forall in monotonic.
+    apply monotonic.
+    assumption.
+    pose (env_monotonic Φ _ Γ Γ2 s2 J2) as monotonic.
+    rewrite Forall_forall in monotonic.
+    apply monotonic.
+    assumption.
+  + apply IHJ2. 
+    apply wf_env_stmt with (P := Φ) (G := Γ) (X := Ξ) (s := s1).
     assumption.
     assumption.
     apply IHJ1.
@@ -558,4 +693,28 @@ Proof.
     apply IHΞ.
     assumption.
     apply H1.
+Qed.
+
+Lemma wf_expr_ty_expr_fv :
+  forall Γ Ξ e T,
+    wf_env Γ ->
+    expr_type Γ Ξ e T -> 
+    ~ (ν ∈ fv_expr e).
+Proof.
+  intros ? ? ? ? wf H.
+  dependent induction H.
+  + intuition.
+  + pose (wf_env_no_vv Γ wf) as WF.
+    unfold var_not_in in WF.
+    rewrite Forall_forall in WF.
+    intuition.
+    simpl in H0.
+    destruct H0.
+    rewrite H0 in H.
+    apply WF with (ν, {ν : τ | φ}).
+    assumption.
+    reflexivity.
+    assumption.
+  + apply IHexpr_type.
+    assumption.
 Qed.
