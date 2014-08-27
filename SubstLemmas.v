@@ -518,6 +518,41 @@ Proof.
     assumption.
 Qed.
 
+Lemma subst_dom_guards :
+  forall Ξ Γ θ,
+    wf_guards Γ Ξ -> 
+    disj_subst Γ θ ->
+    forall w,
+      subst_pred θ (sep_guards Ξ) w = sep_guards Ξ w.
+Proof.
+  induction Ξ.
+  + reflexivity.
+  + intros.
+    unfold sep_guards. fold sep_guards.
+    unfold andp.
+    unfold subst_pred.
+    inversion H. subst. 
+    f_equal.
+    fold (subst_pred θ (sep_pred a) w).
+    apply subst_empty_dom_pred with (G := Γ).
+    assumption.
+    apply H3.
+    apply IHΞ with (Γ := Γ); assumption.
+Qed.
+
+Lemma subst_dom_andp :
+  forall P Q θ,
+    (forall w, subst_pred θ P w = P w) ->
+    (forall w, subst_pred θ Q w = Q w) ->
+    (forall w, subst_pred θ (P && Q) w = (P && Q) w).
+Proof.
+  intros.
+  unfold andp.
+  rewrite <- H.
+  rewrite <- H0.
+  reflexivity.
+Qed.
+
 Lemma subst_env_cons : 
   forall G θ x t w,
       (subst_pred θ (sep_env ((x,t) :: G)) w) = 
@@ -1256,59 +1291,4 @@ Proof.
     inversion wf; assumption.
     apply H.
 Qed.
-
-(* Lemma vv_not_free_pred : *)
-(*   forall G p, *)
-(*     var_not_in ν G -> *)
-
-(* Lemma vv_not_free_sep_env : *)
-(*   forall G, *)
-(*     var_not_in ν G ->  *)
-(*     nonfreevars (sep_env G) ν. *)
-(* Proof. *)
-(*   induction G. *)
-(*   + constructor. *)
-(*   + intros. *)
-(*     unfold var_not_in in H. *)
-(*     rewrite Forall_forall in H. *)
-(*     destruct a as [x [b p]]. *)
-(*     specialize (H (x,{ν : b | p})). *)
-(*     unfold sep_env. fold sep_env. *)
-(*     simpl in *. *)
-(*     split. *)
-(*     split. *)
-(*     destruct H0. *)
-(*     destruct H0. *)
-(*     destruct H0. *)
-(*     exists x0. *)
-(*     unfold subst_one. *)
-(*     simpl. *)
-(*     destruct (eq_dec x ν). *)
-(*     exfalso. *)
-(*     apply H. *)
-(*     left. reflexivity. apply e. *)
-(*     assumption. *)
-(*     (* MEAT *) *)
-(*     destruct H0. *)
-(*     destruct H0. *)
-(*     unfold subst, Subst_prop in *. *)
-
-(*     unfold sep_ty'. *)
-(*     split. *)
-(*     unfold sep_ty' in H0. *)
-(*     destruct H0. *)
-(*     unfold sep_base. *)
-(*     destruct H0. *)
-(*     exists x0. *)
-(*     simpl. unfold subst_one. *)
-(*     foo. *)
-(*     unfold subst_one. *)
-
-
-(*     destruct H. *)
-(*     left. reflexivity. *)
     
-(*     unfold sep_env. *)
-(*     fold sep_env. *)
-(*     split. *)
-(*     destruct H0. *)

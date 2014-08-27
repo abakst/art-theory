@@ -3,6 +3,7 @@ Add LoadPath "vst".
 Require Import Coq.Unicode.Utf8.
 Require Import Language.
 Require Import List.
+Import ListNotations.
 Require Import Subst.
 Require Import msl.msl_direct.
 
@@ -39,6 +40,15 @@ Inductive reft_prop : Set :=
   | not_r  : reft_prop -> reft_prop
   | and_r  : reft_prop -> reft_prop -> reft_prop
   | or_r   : reft_prop -> reft_prop -> reft_prop.
+
+Fixpoint fv_prop φ :=
+  match φ with 
+    | tt_r => []
+    | rel_r e1 _ e2 => fv_expr e1 ++ fv_expr e2
+    | not_r φ => fv_prop φ
+    | and_r φ1 φ2 => fv_prop φ1 ++ fv_prop φ2
+    | or_r φ1 φ2 => fv_prop φ1 ++ fv_prop φ2
+  end.
 
 Record reft_type : Set := 
   mkReft_type { reft_base: base_type;
@@ -99,7 +109,6 @@ Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, n
 
 
 (** Environments **)
-
 Definition bind_env (B T : Type) := list (B * T)%type.
 Definition type_env : Type := bind_env var reft_type.
 Definition proc_env : Type := bind_env pname (stmt * proc_schema)%type.
@@ -117,6 +126,10 @@ Notation "X ∈ Y" := (In X Y) (at level 40).
 
 Definition ext_type_env (e1 e2: type_env) := e1 ++ e2.
 Definition ext_proc_env (e1 e2: proc_env) := e1 ++ e2.
+
+(** Guards **)
+Definition guard := reft_prop.
+Definition guards := list reft_prop.
 
 (** Hm **)
 (** Ugh Equality **)

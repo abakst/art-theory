@@ -39,6 +39,12 @@ Fixpoint sep_env (Γ : type_env) : pred world :=
     | (x,t) :: Γ' => sep_ty x t && sep_env Γ'
   end.
 
+Fixpoint sep_guards (Δ : guards) : pred world :=
+  match Δ with
+    | nil => TT
+    | p :: Δ' => sep_pred p && sep_guards Δ'
+  end.
+
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 
   match S with
     | mkSchema xs ts (x, t) =>

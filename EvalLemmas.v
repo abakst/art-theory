@@ -48,8 +48,8 @@ Proof.
 Qed.
 
 Lemma expr_eval :
-  forall Γ e b φ w,
-    sep_env Γ w -> expr_type Γ e { ν : b | φ } ->
+  forall Γ Ξ e b φ w,
+    sep_env Γ w -> expr_type Γ Ξ e { ν : b | φ } ->
                 (EX v : value, (fun s => eval s e = v)) w.
 Proof.
   autounfold in *. intros.
@@ -60,12 +60,12 @@ Proof.
 Qed.
 
 Lemma expr_eval_ty :
-  forall Γ e b φ w,
-    sep_env Γ w -> expr_type Γ e { ν : b | φ } ->
+  forall Γ Ξ e b φ w,
+    sep_env Γ w -> expr_type Γ Ξ e { ν : b | φ } ->
       (EX v : base_of_type b , (fun s => eval s e = val_of_base b v)) w.
 Proof.
   autounfold in *. intros.
-  apply expr_eval with (e := e) (b := b) (φ := φ) in H.
+  apply expr_eval with (e := e) (b := b) (φ := φ) (Ξ := Ξ) in H.
   destruct H.
   destruct b.
   destruct x.
@@ -75,8 +75,8 @@ Proof.
 Qed.
 
 Lemma exfalso_etype_fun :
-  forall G f e1 e2 T,
-    expr_type G (fun_e f e1 e2) T -> False.
+  forall G Ξ f e1 e2 T,
+    expr_type G Ξ (fun_e f e1 e2) T -> False.
 Proof.
   intros.
   dependent induction H.
@@ -84,14 +84,14 @@ Proof.
 Qed.
 
 Lemma subst_env_eq_expr :
-  forall G b x e w φ, 
-    expr_type G e { ν : b | φ } ->
+  forall G Grds b x e w φ, 
+    expr_type G Grds e { ν : b | φ } ->
     sep_env G w ->
     (subst_pred (subst_one x e) (sep_env G)) w ->
     subst_pred (subst_one x e) (sep_env ((x, { ν : b | var_e ν .= e }) :: G)) w.
 Proof.
-  intros G b x e w φ etype senv H.
-  pose (expr_eval_ty G e b φ w senv etype) as H0.
+  intros G Grds b x e w φ etype senv H.
+  pose (expr_eval_ty G Grds e b φ w senv etype) as H0.
   rewrite subst_env_cons.
   split. {
     split. {
@@ -133,7 +133,8 @@ Proof.
       reflexivity. 
       contradiction n. 
       reflexivity.
-      exfalso. apply exfalso_etype_fun with (G := G) (f := p) (e1 := e1) (e2 := e2) (T := { ν : b | φ }).
+      exfalso. 
+        apply exfalso_etype_fun with (G := G) (Ξ := Grds) (f := p) (e1 := e1) (e2 := e2) (T := { ν : b | φ }).
       assumption.
       contradiction n.
       reflexivity.

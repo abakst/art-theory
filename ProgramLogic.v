@@ -76,6 +76,11 @@ Inductive semax : procspecs -> pred world -> stmt -> pred world -> Prop :=
       forall F P Q R s1 s2,
         semax F P s1 Q -> semax F Q s2 R -> 
         semax F P (seq_s s1 s2) R
+  | semax_if :
+      forall F P Q x s1 s2,
+        semax F ((eval_to (var_e x) (int_v 0) --> FF) && P) s1 Q -> 
+        semax F (eval_to (var_e x) (int_v 0) && P) s2 Q ->
+        semax F P (if_s x s1 s2) Q
   | semax_subst :
       forall F P s Q θ,
         semax F P s Q -> (forall x, (modvars s x -> unique_sub θ x)) ->

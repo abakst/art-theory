@@ -6,10 +6,11 @@ Import ListNotations.
 
 Require Import Translation.
 Require Import Types.
-Require Import Judge.
 Require Import Language.
+Require Import ProgramLogic.
 Require Import Subst.
 Require Import Tactics.
+Require Import Judge.
 
 Lemma subst_distr_pair :
   forall (A B D R : Type) (SA : Subst A D R) (SB : Subst B D R) 
@@ -172,6 +173,16 @@ Proof.
     assumption.
 Qed.
 
+Lemma wf_env_cons_ty :
+  forall G x t,
+    wf_env ((x,t) :: G) -> wf_type ((x,t) :: G) t.
+Proof.
+  intros.
+  apply wf_env_ty with (x := x).
+  left. reflexivity.
+  assumption.
+Qed.
+
 Lemma wf_env_ty_binding :
   forall G x b p,
     wf_env G ->
@@ -183,12 +194,12 @@ Proof.
 Qed.
 
 Lemma wf_env_expr_ty :
-  forall G e b p,
+  forall G Grd e b p,
     wf_env G ->
-    expr_type G e { ν : b | p } -> 
+    expr_type G Grd e { ν : b | p } -> 
     wf_type G { ν : b | p }.
 Proof.
-  intros G e b p wfenv etype.
+  intros G Grd e b p wfenv etype.
   inversion etype. 
   + constructor; repeat constructor.
   + subst. apply wf_env_ty_binding with (x := x) (b := b) (p := p) in wfenv; assumption.
@@ -196,12 +207,12 @@ Proof.
 Qed.
 
 Lemma wf_env_stmt :
-  forall P G G' s,
+  forall P G G' X s,
     wf_env G ->
-    P / G ⊢ s ::: G' ->
+    (P ; G ; X) ⊢ s ::: G' ->
     wf_env G'.
 Proof.
-  intros P G G' s WF J.
+  intros P G G' X s WF J.
   induction J.
   + assumption.
   + assumption. 
@@ -214,7 +225,62 @@ Proof.
       apply wf_var with (t := { ν : τ0 | φ0}).
       unfold In. right. assumption.
       apply IHexpr_type; assumption.
+  + assumption.
   + apply IHJ2. apply IHJ1. assumption.
+Qed.
+
+Lemma wf_guards_cons :
+  forall Γ Ξ xt,
+    wf_guards Γ Ξ -> wf_guards (xt :: Γ) Ξ.
+Proof.
+  intros.
+  assert (I :forall ξ, wf_guard Γ ξ -> wf_guard (xt :: Γ) ξ).
+  {
+    intros ξ wfg.
+    unfold wf_guard in *.
+    split.
+    destruct wfg as [wf vvmem].
+    induction wf.
+    + constructor.
+    + constructor; destruct xt as [x t]; apply wf_expr_cons; assumption.
+    + constructor. apply IHwf. assumption. apply vvmem.
+    + constructor. 
+      apply IHwf1. assumption. simpl in vvmem. solve [intuition].
+      apply IHwf2. assumption. simpl in vvmem. solve [intuition].
+    + constructor. 
+      apply IHwf1. assumption. simpl in vvmem. solve [intuition].
+      apply IHwf2. assumption. simpl in vvmem. solve [intuition].
+    + apply wfg.
+  }
+  unfold wf_guards in *.
+  rewrite Forall_forall in *.
+  intros ξ xmem.
+  specialize (H ξ).
+  apply I.
+  apply H.
+  apply xmem.
+Qed.
+
+Lemma wf_guards_stmt :
+  forall P G G' X s,
+    wf_env G ->
+    wf_guards G X ->
+    (P ; G ; X) ⊢ s ::: G' ->
+    wf_guards G' X.
+Proof.
+  intros P G G' X s wfenv wfguards J.
+  induction J.
+  + assumption.
+  + apply wf_guards_cons; assumption.
+  + apply wf_guards_cons; assumption.
+  + assumption.
+  + apply IHJ2.
+    apply (wf_env_stmt Φ Γ Γ' Ξ s1).
+    assumption.
+    assumption.
+    apply IHJ1.
+    assumption.
+    assumption.
 Qed.
 
 Lemma wf_schema_ret_not_vv :
@@ -272,3 +338,224 @@ Ltac wfsubst x :=
       | G : wf_subst _ |- _ =>
         specialize (H G); destruct H
     end.
+
+Lemma subst_nonfree_expr :
+  forall v e e' w,
+    ~ (v ∈ fv_expr e) -> 
+    eval (λ i : var, eval w (subst_one v e' i)) e = eval w e.
+Proof.
+  induction e.
+  * constructor.
+  * intros.
+    assert (P : v <> v0).
+    intro.
+    apply H.
+    rewrite H0.
+    unfold In.
+    simpl.
+    tauto.
+    unfold subst_one.
+    simpl.
+    destruct (eq_dec v0 v).
+      symmetry in e. contradiction.
+      reflexivity.
+  * intros.
+    simpl.
+    unfold fv_expr in H.
+    fold fv_expr in H.
+    rewrite in_app_iff in H.
+    rewrite IHe1.
+    rewrite IHe2.
+    reflexivity.
+    intuition.
+    intuition.
+Qed.
+
+Lemma subst_nonfree_prop :
+  forall ξ v e,
+    ~ (v ∈ fv_prop ξ) ->
+    forall w,
+      (sep_pred ξ w <-> subst (subst_one v e) (sep_pred ξ) w).
+Proof.
+  intros.
+  induction ξ.
+  + constructor; constructor.
+  + destruct b. unfold subst, Subst_pred, subst_pred, sep_pred.
+    simpl in H.
+    repeat rewrite subst_nonfree_expr; intuition.
+  + simpl; unfold imp.
+    unfold subst, Subst_pred, subst_pred.
+    rewrite IHξ.
+    reflexivity.
+    assumption.
+  + simpl; unfold andp. 
+    simpl in H. 
+    rewrite IHξ1. rewrite IHξ2. 
+    reflexivity.
+    intuition. intuition.
+  + simpl; unfold orp. 
+    simpl in H. 
+    rewrite IHξ1. rewrite IHξ2. 
+    reflexivity.
+    intuition. intuition.
+Qed.
+
+Lemma wf_expr_fv :
+  forall x e Γ,
+    x <> ν -> 
+    var_not_in x Γ ->
+    wf_expr Γ e ->
+    ~ (x ∈ fv_expr e).
+Proof.
+  intros.
+  induction e.
+  * intuition.
+  * inversion H1. subst.
+    unfold fv_expr.
+    intro. 
+    destruct H2.
+    unfold var_not_in in H0.
+    rewrite Forall_forall in H0.
+    specialize (H0 (x,t)).
+    rewrite <- H2 in H0.
+    apply H0 in H4.
+    intuition.
+    intuition.
+    intro.
+    unfold fv_expr in H3.
+    destruct H3.
+    intuition.
+    intuition.
+  * unfold fv_expr. fold fv_expr.
+    inversion H1. subst.
+    rewrite in_app_iff.
+    intro.
+    destruct H2.
+    apply IHe1; assumption.
+    apply IHe2; assumption.
+Qed.
+
+Lemma wf_prop_fv :
+  forall x p Γ,
+    x <> ν ->
+    var_not_in x Γ ->
+    wf_prop Γ p ->
+    ~ (x ∈ fv_prop p).
+Proof.
+  induction p.
+  + intuition.
+  + intros Γ neqvv notin wfprop.
+    unfold fv_prop.
+    rewrite in_app_iff.
+    intro.
+    inversion wfprop. subst.
+    destruct H as [notine | notine0].
+    apply wf_expr_fv with (e := e) in notin.
+    apply notin.
+    apply notine.
+    assumption.
+    assumption.
+    apply wf_expr_fv with (e := e0) in notin.
+    apply notin.
+    apply notine0.
+    assumption.
+    assumption.
+  + intros Γ neqvv notin wfprop.
+    simpl.
+    inversion wfprop; subst.
+    apply IHp with (Γ := Γ); assumption.
+  + intros Γ neqvv notin wfprop.
+    simpl.
+    inversion wfprop; subst.
+    rewrite in_app_iff.
+    intro.
+    destruct H.
+    apply IHp1 with (Γ := Γ) in H; assumption.
+    apply IHp2 with (Γ := Γ) in H; assumption.
+  + intros Γ neqvv notin wfprop.
+    simpl.
+    inversion wfprop; subst.
+    rewrite in_app_iff.
+    intro.
+    destruct H.
+    apply IHp1 with (Γ := Γ) in H; assumption.
+    apply IHp2 with (Γ := Γ) in H; assumption.
+Qed.
+
+    
+Lemma wf_guard_vv_nonfree :
+  forall Γ ξ,
+    wf_guard Γ ξ ->
+      nonfreevars (sep_pred ξ) ν.
+Proof.
+  intros.
+  unfold wf_guard in H.
+  destruct H as [wf fv].
+  intuition.
+  unfold nonfreevars.
+  intros w e' H.
+  apply subst_nonfree_prop.
+  intro. apply fv. assumption.
+  assumption.
+Qed.
+
+Lemma wf_guard_nonfree :
+  forall x ξ Γ,
+    var_not_in x Γ ->
+    wf_guard Γ ξ ->
+    nonfreevars (sep_pred ξ) x.
+Proof.
+  intros x ξ Γ nomem wfg.
+  destruct (eq_dec x ν).
+  + rewrite e. apply wf_guard_vv_nonfree with (Γ := Γ).
+    assumption.
+  + unfold nonfreevars.
+    intros.
+    apply subst_nonfree_prop.
+    apply wf_prop_fv with (Γ := Γ).
+    assumption.
+    assumption.
+    apply wfg.
+    assumption.
+Qed.
+
+Lemma wf_guards_vv_nonfree :
+  forall Γ Ξ,
+    wf_guards Γ Ξ ->
+      nonfreevars (sep_guards Ξ) ν.
+Proof.
+  intros.
+  induction Ξ.
+  + constructor.
+  + unfold sep_guards.
+    fold sep_guards.
+    inversion H.
+    subst.
+    split.
+    pose (P := wf_guard_vv_nonfree Γ a H2).
+    apply P.
+    apply H0.
+    apply IHΞ.
+    assumption.
+    apply H0.
+Qed.
+
+Lemma wf_guards_nonfree :
+  forall x Ξ Γ,
+    var_not_in x Γ ->
+    wf_guards Γ Ξ ->
+    nonfreevars (sep_guards Ξ) x.
+Proof.
+  intros.
+  induction Ξ.
+  + constructor.
+  + unfold sep_guards. fold sep_guards.
+    inversion H0. subst.
+    split.
+    pose (P := wf_guard_nonfree x a Γ H H3).
+    apply P.
+    apply H1.
+    apply IHΞ.
+    assumption.
+    apply H1.
+Qed.
