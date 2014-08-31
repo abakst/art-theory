@@ -122,6 +122,9 @@ Definition var_not_in : var -> type_env -> Prop :=
 Definition fun_in : (pname * (stmt * proc_schema)) -> proc_env -> Prop :=
   fun ft Φ => In ft Φ.
 
+Definition fun_not_in : pname  -> proc_env -> Prop :=
+  fun f Φ => Forall (fun ft => fst ft <> f) Φ.
+
 Notation "X ∈ Y" := (In X Y) (at level 40).
 
 Definition ext_type_env (e1 e2: type_env) := e1 ++ e2.

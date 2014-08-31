@@ -422,6 +422,88 @@ Proof.
   }
 Qed.
 
+(* Lemma subst_ty_move : *)
+(*   forall x v e T w, *)
+(*     sep_ty x (subst (subst_one v e) T) w -> subst (subst_one v e) (sep_ty x T) w. *)
+(* Proof. *)
+(*   destruct T as [b p]. *)
+(*   unfold sep_ty. *)
+(*   simpl. *)
+(*   intros. *)
+(*   destruct H. *)
+(*   unfold subst in H0. *)
+(*   unfold Subst_prop at 2 in H0. *)
+(*   rewrite subst_prop_distr in H0. *)
+
+Lemma expr_type_interp :
+  forall Γ Ξ v e T,
+    var_not_in v Γ ->
+    expr_type Γ Ξ e (subst (subst_one v e) T) ->
+    wf_guards Γ Ξ ->
+    (forall w,
+      sep_ty v (subst (subst_one v e) T) w ->
+      subst (subst_one v e) (sep_ty v T) w).
+Proof.
+  intros until T.
+  destruct T as [b p].
+  intros nomem ET.
+  unfold sep_ty.
+  dependent induction ET.
+  {
+    simpl in *.
+    intros.
+    unfold subst, Subst_pred, subst_pred.
+    split.
+    admit.
+    destruct H0.
+  }
+  
+
+  (* H6 : expr_type Γ [] e (subst (subst_one v e) r) *)
+  (* H5 : ((p, *)
+  (*       (seq_s body (return_s e), *)
+  (*       {| *)
+  (*       s_formals := s_formals; *)
+  (*       s_formal_ts := s_formal_ts; *)
+  (*       s_ret := (v, r) |})) :: Φ; *)
+  (*      proc_init_env *)
+  (*        {| *)
+  (*        s_formals := s_formals; *)
+  (*        s_formal_ts := s_formal_ts; *)
+  (*        s_ret := (v, r) |}; [])⊢body ::: (Γ) *)
+  (* H7 : prog_type *)
+  (*        ((p, *)
+  (*         (seq_s body (return_s e), *)
+  (*         {| *)
+  (*         s_formals := s_formals; *)
+  (*         s_formal_ts := s_formal_ts; *)
+  (*         s_ret := (v, r) |})) :: Φ) prog *)
+  (* IHprog_type : semax_prog *)
+  (*                 ((p, mkProc s_formals v [] (seq_s body (return_s e)), *)
+  (*                  sep_env (combine s_formals s_formal_ts),  *)
+  (*                  sep_ty v r) :: sep_proc_env Φ) prog *)
+  (* P := semax_procdecl_p (sep_proc_env Φ) e body *)
+  (*        (p, mkProc s_formals v [] (seq_s body (return_s e)), *)
+  (*        sep_env (combine s_formals s_formal_ts), sep_ty v r) prog *)
+  (*   : seq_s body (return_s e) = seq_s body (return_s e) *)
+  (*     → Forall *)
+  (*         (λ ps' : pname * proc' * pred world * pred world, fst4 ps' ≠ p) *)
+  (*         (sep_proc_env Φ) *)
+  (*       → ((p, mkProc s_formals v [] (seq_s body (return_s e)), *)
+  (*          sep_env (combine s_formals s_formal_ts),  *)
+  (*          sep_ty v r) :: sep_proc_env Φ |-  *)
+  (*          {{sep_env (combine s_formals s_formal_ts)}}body *)
+  (*          {{subst (subst_one v e) (sep_ty v r)}}) *)
+  (*         → semax_prog *)
+  (*             ((p, mkProc s_formals v [] (seq_s body (return_s e)), *)
+  (*              sep_env (combine s_formals s_formal_ts),  *)
+  (*              sep_ty v r) :: sep_proc_env Φ) prog *)
+  (*           → semax_prog (sep_proc_env Φ) *)
+  (*               (procdecl_p p *)
+  (*                  (mkProc s_formals v [] (seq_s body (return_s e))) prog) *)
+  (* ============================ *)
+  (*  sep_env Γ |-- subst (subst_one v e) (sep_ty v r) *)
+
 Lemma types_interp :
   forall Γ Ξ xs ts,
     var_not_in ν Γ ->  
@@ -447,6 +529,35 @@ Proof.
     unfold In. right. apply H2.
 Qed.
 
+Lemma funspec_nomem :
+  forall Φ p, 
+    fun_not_in p Φ ->
+    Forall (fun ps => fst4 ps <> p) (sep_proc_env Φ).
+Proof.
+  intros.
+  induction Φ.
+  + constructor.
+  + rewrite Forall_forall in *.
+    intros [ [[p' pr] P] Q ] mem.
+    destruct a as [p'' [s t]].
+    unfold sep_proc_env in mem. fold sep_proc_env in mem.
+    apply in_inv in mem.
+    destruct mem.
+    simpl in *.
+    unfold sep_schema in H0.
+    destruct t.
+    destruct s_ret.
+    inversion H0. subst.
+    unfold fun_not_in in H.
+    rewrite Forall_forall in H.
+    specialize (H (p', (s, {| s_formals := s_formals; s_formal_ts := s_formal_ts; s_ret := (v,r) |}))).
+    apply H.
+    left. reflexivity.
+    apply IHΦ.
+    inversion H. assumption.
+    assumption.
+Qed.
+    
 Lemma funspec_interp :
   forall F f p t,
     In (f, (p,t)) F -> In (sep_schema f p t) (sep_proc_env F).
@@ -674,12 +785,12 @@ Qed.
 
 Lemma sep_proof_proc_mod :
   forall f xs x x',
-    modvars (proc_s f xs [x]) x' -> x = x'.
+    modvars (proc_s f xs x []) x' -> x = x'.
 Proof.
   intros.
   inversion H.
-  apply in_inv in H4.
   intuition.
+  reflexivity.
 Qed.
 
 Ltac wfenv_ty_t :=
@@ -693,10 +804,10 @@ Ltac wfenv_ty_t :=
   end.
 
 Lemma sep_proof_proccall :
-  forall Φ Ξ Γ Γ' f xs v (J : (Φ ; Γ ; Ξ) ⊢ proc_s f xs [v] ::: Γ'),
+  forall Φ Ξ Γ Γ' f xs v (J : (Φ ; Γ ; Ξ) ⊢ proc_s f xs v [] ::: Γ'),
     wf_env Γ ->
     wf_guards Γ Ξ ->
-    sep_proc_env Φ |- {{ sep_env Γ * sep_guards Ξ }} proc_s f xs [v] {{ sep_env Γ' * sep_guards Ξ }}.
+    sep_proc_env Φ |- {{ sep_env Γ * sep_guards Ξ }} proc_s f xs v [] {{ sep_env Γ' * sep_guards Ξ }}.
 Proof.
   intros until v. 
   intros J wf wfg.
@@ -756,11 +867,11 @@ Proof.
   firstorder.
   apply semax_frame.
   subst.
-  assert (A : subst θ (proc_s f fxs [rx]) = proc_s f (subst θ fxs) [subst θ rx]).
+  assert (A : subst θ (proc_s f fxs rx []) = proc_s f (subst θ fxs) (subst θ rx) []).
   unfold subst at 1. simpl. reflexivity.
   rewrite <- A.
   apply semax_subst.
-  apply (semax_proc f (mkProc (length fxs) fxs [rx] p)).
+  apply (semax_proc f (mkProc fxs rx [] p)).
   assumption.
   intros.
   assert (rx = x) by 
@@ -1138,15 +1249,48 @@ Proof.
  + apply sep_guards_pure.
 Qed.
 
-Corollary type_safety :
-  forall Φ Γ s,
-    (Φ ; nil ; []) ⊢ s ::: Γ -> sep_proc_env Φ |- {{ TT }} s {{ TT }}.
+Corollary type_safety_stmt :
+  forall Φ Γ s, (Φ ; [] ; []) ⊢ s ::: Γ -> sep_proc_env Φ |- {{ TT }} s {{ TT }}.
 Proof.
   intros.
   assert (wf_env nil). constructor.
   assert (wf_guards nil nil). constructor.
-  apply semax_pre_post with (P' := sep_env nil && sep_guards nil) (Q' := sep_env Γ && sep_guards nil);
-  first [ constructor | apply sep_proof_stmt with (Φ := Φ) (Ξ := []); assumption].
+  apply semax_pre_post with (P' := sep_env nil && sep_guards nil) 
+                            (Q' := sep_env Γ && sep_guards nil);
+  first [ constructor 
+        | apply sep_proof_stmt with (Φ := Φ) (Ξ := []); assumption].
   constructor.
   constructor.
 Qed.
+
+Theorem sep_proof_program :
+  forall Φ p,
+    prog_type Φ p -> semax_prog (sep_proc_env Φ) p.
+Proof.
+  intros Φ p H.
+  induction H.
+  + constructor.
+    apply type_safety_stmt with Γ;  assumption.
+  + destruct pr. 
+    simpl in *.
+    subst.
+    pose (semax_procdecl_p (sep_proc_env Φ) 
+                           e
+                           body
+                           (sep_schema p (seq_s body (return_s e)) S)
+                           prog) as P.
+    unfold sep_schema in P.
+    destruct S.
+    destruct s_ret.
+    simpl in *.
+    simpl in *.
+    apply P.
+    reflexivity.
+    admit.
+    simpl in *.
+    apply semax_pre_post with (P' := sep_env (combine s_formals s_formal_ts) && sep_guards [])
+                              (Q' := sep_env Γ && sep_guards []).
+    firstorder.
+    rewrite andp_TT.
+    apply sep_proof_stmt with (Γ := combine s_formals s_formal_ts) (Ξ := []).
+    

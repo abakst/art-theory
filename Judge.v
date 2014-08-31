@@ -143,8 +143,7 @@ Inductive stmt_type : proc_env -> type_env -> guards -> stmt -> type_env -> Prop
       Forall (fun t => wf_type Γ t) ts ->
       tc_list Γ Ξ (combine xs ts) ->
 (* ------------------------------------------------------------------- *)
-  ((Φ ; Γ ; Ξ) ⊢ proc_s f xs [v] ::: (subst θ (s_ret S) :: Γ))
-
+  ((Φ ; Γ ; Ξ) ⊢ proc_s f xs v [] ::: (subst θ (s_ret S) :: Γ))
 | t_assign : 
     forall Φ Γ Ξ v e τ φ, v <> ν ->
       var_not_in v Γ -> expr_type Γ Ξ e { ν : τ | φ } ->
@@ -164,5 +163,28 @@ Inductive stmt_type : proc_env -> type_env -> guards -> stmt -> type_env -> Prop
   (Φ ; Γ ; Ξ) ⊢ s1 ::: Γ' -> (Φ ; Γ' ; Ξ) ⊢ s2 ::: Γ'' ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Ξ) ⊢ seq_s s1 s2 ::: Γ'')
-
+      
 where "( Φ ; Γ ; Ξ ) ⊢ s ::: O" := (stmt_type Φ Γ Ξ s O).
+
+Definition proc_init_env S := combine (s_formals S) (s_formal_ts S).
+    
+Inductive prog_type : proc_env -> program -> Prop :=
+| t_prog_entry : 
+    forall Φ Γ s, 
+      (Φ ; [] ; []) ⊢ s ::: Γ ->
+      prog_type Φ (entry_p s)
+| t_prog_procdecl :
+  forall Φ Γ p pr body prog e S,
+    wf_schema S -> 
+    fun_not_in p Φ ->
+    p_args pr = s_formals S -> 
+    p_body pr = seq_s body (return_s e) ->
+    p_ret pr = fst (s_ret S) ->
+    p_mod pr = [] ->
+    ((p, (p_body pr, S)) :: Φ ; proc_init_env S ; []) ⊢ body ::: Γ ->
+    expr_type Γ [] e (subst (subst_one (fst (s_ret S)) e) (snd (s_ret S))) ->
+    prog_type ((p,(p_body pr, S)) :: Φ) prog ->
+(* ------------------------------------------------------------------- *)
+    prog_type Φ (procdecl_p p pr prog).
+
+(* Notation  " Φ ⊢ p " := (proc_type Φ f s S) (at level 0, no associativity). *)

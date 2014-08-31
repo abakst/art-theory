@@ -29,26 +29,30 @@ Fixpoint fv_expr e :=
     | fun_e f e1 e2 => fv_expr e1 ++ fv_expr e2
     | _ => []
   end.
-
 (* 
 Procedure p(x0 ... xn)
 - return value is stored in one of p_mod 
 *)
-Record proc' s :=
-    { p_arity: nat;
-      p_args: list var;
+Record proc' {s} :=
+    { p_args: list var;
+      p_ret: var;
       p_mod: list var;
-      p_body: s
-    }.
+      p_body: s }.
 
 Inductive stmt :=
-  | skip_s   : stmt
-  | assign_s : var -> expr -> stmt
-  | proc_s   : pname -> list var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
-  | seq_s    : stmt -> stmt -> stmt
-  | if_s     : expr -> stmt -> stmt -> stmt.
+| skip_s   : stmt
+| assign_s : var -> expr -> stmt
+| proc_s   : pname -> list var -> var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
+| seq_s    : stmt -> stmt -> stmt
+| if_s     : expr -> stmt -> stmt -> stmt
+| return_s : expr -> stmt.
 
-Definition proc := proc' stmt.
+Definition proc := @proc' stmt.
+
+Inductive program := 
+| entry_p    : stmt -> program
+| procdecl_p : pname -> proc -> program -> program.
+
 Definition mkProc := Build_proc' stmt.
 
 (* Coercion int_v: nat >-> value. *)
@@ -108,7 +112,7 @@ Instance Subst_var_expr : Subst expr var expr := fun s v => subst_expr s v.
 
 Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
   match st with
-    | proc_s p xs os => proc_s p (subst s xs) (subst s os)
+    | proc_s p xs r os => proc_s p (subst s xs) (subst s r) (subst s os)
     | assign_s x e => assign_s (subst s x) (subst s e)
     | _ => st
   end.
@@ -128,3 +132,6 @@ Fixpoint eval s e :=
       let v2 := eval s e2 in
       eval_fun f v1 v2
   end.
+
+Definition subst_one (x : var) (e : expr) :=
+  fun i => if eq_dec i x then e else (var_e i).

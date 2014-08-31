@@ -21,9 +21,6 @@ Instance Disj_world : Disj_alg world := _.
 Definition fun_set (f: var -> option value) (x: var) (y: option value) :=
   fun i => if eq_dec i x then y else f i.
 
-Definition subst_one (x : var) (e : expr) :=
-  fun i => if eq_dec i x then e else (var_e i).
-
 Definition subst_pred sub (P: pred world) : (pred world) := 
   fun w =>
     P (fun i => eval w (sub i)).
@@ -40,9 +37,11 @@ Definition equal (x y: var) : pred world :=
 
 Inductive modvars : stmt -> var -> Prop :=
 | mod_assign: forall x e, modvars (assign_s x e) x
-| mod_proc: forall x f xs os, 
-              In x os ->
-              modvars (proc_s f xs os) x
+| mod_proc1: forall f xs r os x, 
+               In x os ->
+               modvars (proc_s f xs r os) x
+| mod_proc2: forall f xs r os, 
+               modvars (proc_s f xs r os) r
 | mod_seq1: forall x s1 s2, modvars s1 x -> modvars (seq_s s1 s2) x
 | mod_seq2: forall x s1 s2, modvars s2 x -> modvars (seq_s s1 s2) x.
 
@@ -71,7 +70,7 @@ Inductive semax : procspecs -> pred world -> stmt -> pred world -> Prop :=
   | semax_proc :
       forall f p (F : procspecs) P Q,
         In (f, p, P, Q) F ->
-        semax F P (proc_s f (p_args stmt p) (p_mod stmt p)) Q
+        semax F P (proc_s f (p_args p) (p_ret p) (p_mod p)) Q
   | semax_seq : 
       forall F P Q R s1 s2,
         semax F P s1 Q -> semax F Q s2 R -> 
@@ -93,14 +92,38 @@ Inductive semax : procspecs -> pred world -> stmt -> pred world -> Prop :=
       forall F P Q R s,
         semax F P s Q -> subset (modvars s) (nonfreevars R) ->
         semax F (P * R)%pred s (Q * R)%pred.
-
+      
 Notation "F |- {{ P }} s {{ Q }}" := (semax F P%pred s Q%pred) (no associativity, at level 90).
 
-(* Definition x:var := 0. *)
+Definition fst4{A B C D : Type} (t : (A * B * C * D)) :=
+  match t with
+    | (a,_,_,_) => a
+  end.
 
-(* Example ex1: *)
-(*   {{ TT }} assign_s x 1 {{ TT }}. *)
-(* Proof. *)
-(*   apply semax_pre_post with (P' := (eval_to (value_e 1) (int_v 1) && (subst x (Some (int_v 1)) TT))%pred) (Q' := TT). *)
-(*   constructor. reflexivity. constructor. auto. apply semax_assign. *)
-(* Qed. *)
+Definition snd4{A B C D : Type} (t : (A * B * C * D)) :=
+  match t with
+    | (_,a,_,_) => a
+  end.
+
+Definition thd4{A B C D : Type} (t : (A * B * C * D)) :=
+  match t with
+    | (_,_,a,_) => a
+  end.
+
+Definition fth4{A B C D : Type} (t : (A * B * C * D)) :=
+  match t with
+    | (_,_,_,a) => a
+  end.
+
+Inductive semax_prog : procspecs -> program -> Prop :=
+| semax_entry_p :
+    forall F s,
+      semax F TT s TT ->
+      semax_prog F (entry_p s)
+| semax_procdecl_p :
+    forall F e body ps prog,
+      p_body (snd4 ps) = seq_s body (return_s e) ->
+      Forall (fun ps' => fst4 ps' <> fst4 ps) F ->
+      semax (ps :: F) (thd4 ps) body (subst (subst_one (p_ret (snd4 ps)) e) (fth4 ps)) ->
+      semax_prog (ps :: F) prog ->
+      semax_prog F (procdecl_p (fst4 ps) (snd4 ps) prog).

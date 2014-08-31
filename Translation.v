@@ -33,6 +33,14 @@ Definition sep_ty (x:var) (t:reft_type) : pred world :=
   | mkReft_type b p => sep_base x b && (sep_pred (subst (subst_one ν (var_e x)) p))
   end.
 
+Definition sep_base_e (e:expr) (t:base_type) : pred world :=
+  EX v : (base_of_type t), (fun s => (eval s e = (val_of_base t v))).
+
+Definition sep_ty_e (e:expr) (t:reft_type) : pred world :=
+  match t with
+  | mkReft_type b p => sep_base_e e b && (sep_pred (subst (subst_one ν e) p))
+  end.
+
 Fixpoint sep_env (Γ : type_env) : pred world :=
   match Γ with
     | nil => TT
@@ -48,7 +56,7 @@ Fixpoint sep_guards (Δ : guards) : pred world :=
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 
   match S with
     | mkSchema xs ts (x, t) =>
-      (f, mkProc (length xs) xs [x] s, sep_env (combine xs ts), sep_ty x t)
+      (f, mkProc xs x [] s, sep_env (combine xs ts), sep_ty x t)
   end.
 
 Fixpoint sep_proc_env (Φ : proc_env) : procspecs :=

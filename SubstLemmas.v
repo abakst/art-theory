@@ -1,6 +1,7 @@
 Add LoadPath "vst".
 Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
+Require Import Coq.Program.Equality.
 
 Require Import Types.
 Require Import Judge.
@@ -1137,6 +1138,55 @@ Proof.
   reflexivity.
 Qed.
 
+Lemma expr_subst_eq_2 :
+  forall θ e v w,
+    θ ν = var_e ν ->
+    (forall e, Language.subst_expr θ e = var_e ν -> e = var_e ν) ->
+   (eval w
+     (subst (λ i : var, if eq_dec i ν then θ v else var_e i)
+        (subst θ e)) =
+    eval (λ i : var, eval w (θ i))
+       (subst (λ i : var, if eq_dec i ν then var_e v else var_e i) e)).
+Proof.
+  intros.
+  induction e.
+  + reflexivity.
+  + unfold subst. simpl.
+    destruct (eq_dec v0 ν).
+    rewrite e. rewrite H. foo.
+    simpl.
+    unfold Subst_var_expr.
+    unfold Language.subst_expr.
+    fold Language.subst_expr.
+    destruct (θ v0).
+    simpl. reflexivity.
+    simpl. destruct (eq_dec v1 ν).
+Admitted.
+(*   intros. *)
+(*   unfold subst. unfold Subst_var_expr. unfold Language.subst_expr. *)
+(*   induction e. *)
+(*   { reflexivity. } *)
+(*   { *)
+(*     destruct (eq_dec v0 ν). *)
+(*     + simpl. *)
+(*       rewrite e. *)
+(*       rewrite H. *)
+(*       destruct (eq_dec ν ν). *)
+(*       reflexivity. intuition. *)
+(*     + simpl. *)
+(*       f_equal. *)
+(*     simpl.  *)
+(*     induction (θ v0). *)
+(*     reflexivity. *)
+    
+(*   } *)
+
+(*   simpl in *. *)
+(*   rewrite <- IHe1. *)
+(*   rewrite <- IHe2. *)
+(*   reflexivity. *)
+(* Qed. *)
+
 Lemma subst_expr_distr :
   forall θ e1 e2 v w,
     θ ν = ν ->
@@ -1161,6 +1211,134 @@ Proof.
   assumption.
   assumption.
 Qed.
+
+(* Lemma subst_expr_helper: *)
+(*   forall es e θ w, *)
+(*     subst θ (var_e ν) = var_e ν -> *)
+(*     (forall e, subst θ e = var_e ν → e = var_e ν) -> *)
+(*     (es <> var_e ν) -> *)
+(*    eval w *)
+(*      (Language.subst_expr *)
+(*         (λ i : var, if eq_dec i ν then Language.subst_expr θ e else var_e i) *)
+(*         es) = eval w es. *)
+(* Proof. *)
+(*   induction es. *)
+(*   + reflexivity. *)
+(*   + intros. *)
+(*     simpl. *)
+(*     unfold subst in *. *)
+(*     simpl in *. *)
+(*     destruct (eq_dec v ν). *)
+(*     rewrite e0 in *. *)
+(*     intuition. *)
+(*     reflexivity. *)
+(*   + intros. *)
+(*     symmetry in subv. *)
+(*     specialize (H0 (var_e v)). unfold subst in H0. simpl in H0. *)
+(*     simpl in *. *)
+(*     rewrite IHe0_1. *)
+(*     rewrite IHe0_2. *)
+(*     reflexivity. *)
+(*     assumption. *)
+(*     assumption. *)
+(*   (*   rewrite H. *) *)
+(*   (*   reflexivity. *) *)
+(*   (*   reflexivity. *) *)
+(*   (* + intros. *) *)
+(*     Admitted. *)
+Lemma subst_expr_help2 :
+  forall θ e w,
+    eval w (Language.subst_expr θ e) = eval (fun i => eval w (θ i)) e.
+Proof.
+  induction e.
+  + reflexivity.
+  + intros. reflexivity.
+  + intros. simpl in *. rewrite IHe1. rewrite IHe2. reflexivity.
+Qed.
+
+Lemma subst_nonfree_expr2 :
+  forall e e' w,
+    ~ (ν ∈ fv_expr e) ->
+   eval w (Language.subst_expr (subst_one ν e') e) =
+   eval w e.
+Proof.
+  intros.
+  induction e.
+  + reflexivity.
+  + unfold subst_one.
+    destruct (eq_dec v ν).
+    rewrite e in H.
+    exfalso. apply H. left. reflexivity.
+    simpl.
+    destruct (eq_dec v ν). intuition. reflexivity.
+  + simpl.
+    simpl in H.
+    rewrite IHe1.
+    rewrite IHe2.
+    reflexivity.
+    simpl in H.
+    intro.
+    apply H.
+    apply in_or_app.
+    right. assumption.
+    intro.
+    apply H.
+    apply in_or_app.
+    left.
+    assumption.
+Qed.
+
+Lemma subst_expr_help :
+  forall θ v (e : expr) w,
+  θ ν = var_e ν ->
+  (forall e, ν ∈ fv_expr (Language.subst_expr θ e) → e = var_e ν) ->
+   eval w
+     (Language.subst_expr
+        (λ i : var, if eq_dec i ν then Language.subst_expr θ e else var_e i)
+        (Language.subst_expr θ (var_e v))) =
+   eval (λ i : var, eval w (θ i))
+     (Language.subst_expr (λ i : var, if eq_dec i ν then e else var_e i)
+        (var_e v)).
+Proof.
+  intros.
+  simpl.
+  destruct (eq_dec v ν). 
+  { rewrite e0. rewrite H. simpl.
+    destruct (eq_dec ν ν). rewrite subst_expr_help2. reflexivity. intuition. }
+  { simpl. 
+    fold (subst_one ν (Language.subst_expr θ e)).
+    rewrite subst_nonfree_expr2.
+    reflexivity.
+    intro.
+    specialize (H0 (var_e v)).
+    apply H0 in H1.
+    inversion H1.
+    intuition. }
+Qed.
+
+
+Lemma subst_expr_distr' :
+  forall θ e e' w,
+    θ ν = (var_e ν) ->
+    (forall e, ν ∈ fv_expr (Language.subst_expr θ e) → e = var_e ν) ->
+   eval w
+     (subst
+        (λ i : var, if eq_dec i ν then Language.subst_expr θ e else var_e i)
+        (subst θ e'))
+   = eval (λ i : var, eval w (θ i))
+       (subst (λ i : var, if eq_dec i ν then e else var_e i) e').
+Proof.
+  unfold subst. unfold Subst_var_expr.
+  simpl.
+  intros.
+  induction e'.
+  + reflexivity.
+  + apply subst_expr_help; assumption.
+  + simpl. 
+    rewrite IHe'1.
+    rewrite IHe'2.
+    reflexivity.
+Qed.
     
 Lemma subst_base_distr :
   forall θ b v w,
@@ -1176,6 +1354,19 @@ Proof.
   destruct H;
   exists x;
   foo.
+Qed.
+
+Lemma subst_base_e_distr :
+  forall θ b e w,
+  sep_base_e (Language.subst_expr θ e) b w <->
+  sep_base_e e b (λ i : var, eval w (θ i)).
+Proof.
+  intros θ b e w.
+  unfold subst.
+  unfold sep_base_e.
+  unfold exp.
+  rewrite <- subst_expr_help2.
+  reflexivity.
 Qed.
 
 Lemma subst_prop_distr :
@@ -1219,6 +1410,36 @@ Proof.
     auto.
 Qed.
 
+Lemma subst_prop_distr' :
+  forall θ e p w,
+   (θ ν = var_e ν) ->
+   (forall e, ν ∈ fv_expr (subst θ e) -> e = var_e ν) ->
+  ((sep_pred
+    (subst_prop (subst_one ν (Language.subst_expr θ e))
+                (subst_prop θ p)) w)
+    <->
+   (sep_pred (subst_prop (subst_one ν e) p) (λ i : var, eval w (θ i)))).
+Proof.
+  intros.
+  induction p.
+  + constructor; reflexivity.
+  + destruct b.
+    unfold subst_one.
+    simpl.
+    rewrite subst_expr_distr'.
+    rewrite subst_expr_distr'.
+    reflexivity.
+    assumption.
+    assumption.
+    assumption.
+    assumption.
+  + simpl. unfold imp. simpl.
+    rewrite <- IHp.
+    reflexivity.
+  + simpl. unfold andp. rewrite IHp1. rewrite IHp2. reflexivity.
+  + simpl. unfold orp. rewrite IHp1. rewrite IHp2. reflexivity.
+Qed.
+
 Lemma subst_ty_distr :
   forall θ v b p w,
    θ ν = ν ->
@@ -1248,6 +1469,31 @@ Proof.
   assumption.
   assumption.
   apply prop.
+Qed.
+
+Lemma subst_ty_distr' :
+  forall θ e b p w,
+   θ ν = var_e ν ->
+   (forall e, ν ∈ fv_expr (subst θ e) -> e = var_e ν) ->
+   (sep_ty_e (subst θ e) (subst θ { ν : b | p }) w <->
+   subst θ (sep_ty_e e { ν : b | p }) w).
+Proof.
+  simpl.
+  unfold subst.
+  unfold sep_ty.
+  intros θ e b p w vvid vvuniq.
+  unfold Subst_pred, subst_pred.
+  unfold Subst_var_expr, subst_var.
+  unfold Subst_prop.
+  constructor.
+  intros [base prop].
+  split.  
+  apply subst_base_e_distr; assumption.
+  apply subst_prop_distr'; assumption.
+  intros [base prop].
+  split.
+  apply subst_base_e_distr; assumption.
+  apply subst_prop_distr'; assumption.
 Qed.
 
 Lemma subst_in_env :
