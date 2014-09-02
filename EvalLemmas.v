@@ -23,7 +23,7 @@ Proof.
   induction Γ. 
   crush_sep False fail.
   crush_sep False fail.
-  fold (subst_pred (subst_one ν (var_e x)) (sep_base ν b0) w) in H.
+  fold (subst_pred (subst_one ν (var_e x)) (sep_base (var_e ν) b0) w) in H.
   unfold subst_one in H.
   unfold subst_pred in H.
   unfold sep_base in H.
@@ -38,7 +38,8 @@ Proof.
 Qed.
 
 Lemma var_eval :
-  forall Γ x b φ w, (x, { ν : b | φ }) ∈ Γ -> sep_env Γ w -> (EX v : value, (fun s => eval s (var_e x) = v)) w.
+  forall Γ x b φ w, (x, { ν : b | φ }) ∈ Γ -> sep_env Γ w -> 
+                    (EX v : value, (fun s => eval s (var_e x) = v)) w.
 Proof.
   crush_sep False fail.
   apply var_val with (x := x) (b := b) (φ := φ)in H0 .

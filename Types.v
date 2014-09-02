@@ -99,6 +99,7 @@ Definition subst_schema s S :=
     | mkSchema xs ts xt =>
       mkSchema (subst s xs) (subst s ts) (subst_both s xt)
   end.
+
 Instance Subst_proc_schema : Subst proc_schema var var := subst_schema.
 
 Definition dummyt (v : var) t p := mkReft_type t p.
