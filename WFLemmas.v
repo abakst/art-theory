@@ -1,14 +1,16 @@
 Add LoadPath "vst".
-Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
+Require Import msl.eq_dec.
 Require Import List.
 Import ListNotations.
 Require Import Coq.Program.Equality.
+Require Import msl.Coqlib2.
+Require Import msl.log_normalize.
 
 Require Import Translation.
 Require Import Types.
 Require Import Language.
-Require Import ProgramLogic.
+Require Export ProgramLogic.
 Require Import Subst.
 Require Import Tactics.
 Require Import Judge.
@@ -475,9 +477,9 @@ Ltac wfsubst x :=
     end.
 
 Lemma subst_nonfree_expr :
-  forall v e e' w,
+  forall v e e',
     ~ (v ∈ fv_expr e) -> 
-    eval (λ i : var, eval w (subst_one v e' i)) e = eval w e.
+    forall w, eval (λ i : var, eval w (subst_one v e' i), hp w) e = eval w e.
 Proof.
   induction e.
   * constructor.
@@ -506,33 +508,103 @@ Proof.
     intuition.
 Qed.
 
+Lemma subst_distr_andp:
+  forall (θ : subst_t var expr) (P Q : assert),
+    (subst θ (andp P Q) = (andp (subst θ P) (subst θ Q))).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_distr_andp_var:
+  forall (θ : subst_t var var) (P Q : assert),
+    (subst θ (andp P Q) = (andp (subst θ P) (subst θ Q))).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_distr_andp' :
+  forall (θ : subst_t var expr) (P Q : assert) w,
+    (subst θ (andp P Q) w = (andp (subst θ P) (subst θ Q)) w).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_distr_andp_var' :
+  forall (θ : subst_t var var) (P Q : assert) w,
+    (subst θ (andp P Q) w = (andp (subst θ P) (subst θ Q)) w).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_distr_orp:
+  forall (θ : subst_t var expr) (P Q : assert),
+    (subst θ (orp P Q) = (orp (subst θ P) (subst θ Q))).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_distr_imp :
+  forall (θ : subst_t var expr) (P Q : assert),
+    (subst θ (imp P Q) = (imp (subst θ P) (subst θ Q))).
+Proof.
+  intros.
+  reflexivity.
+Qed.
+
+Lemma subst_FF :
+  forall θ, subst θ FF = FF.
+Proof.
+  reflexivity.
+Qed.
+
+Lemma subst_emp :
+  forall θ, subst θ emp = emp.
+Proof.
+  reflexivity.
+Qed.
+
 Lemma subst_nonfree_prop :
   forall ξ v e,
     ~ (v ∈ fv_prop ξ) ->
-    forall w,
-      (sep_pred ξ w <-> subst (subst_one v e) (sep_pred ξ) w).
+    (subst (subst_one v e) (sep_pred ξ) = sep_pred ξ).
 Proof.
   intros.
   induction ξ.
-  + constructor; constructor.
-  + destruct b. unfold subst, Subst_pred, subst_pred, sep_pred.
+  + split; apply derives_refl.
+  + destruct b. 
+    unfold subst, Subst_pred, subst_pred, sep_pred.
     simpl in H.
-    repeat rewrite subst_nonfree_expr; intuition.
-  + simpl; unfold imp.
-    unfold subst, Subst_pred, subst_pred.
+    apply pred_ext;
+    intro;
+    simpl;
+    try rewrite subst_nonfree_expr with (e := e0) (v := v) (e' := e);
+    try rewrite subst_nonfree_expr with (e := e1) (v := v) (e' := e);
+    first [ apply derives_refl | intuition ].
+  + unfold sep_pred. fold sep_pred.
+    repeat rewrite subst_distr_andp.
+    repeat rewrite subst_distr_imp.
+    rewrite subst_FF.
     rewrite IHξ.
     reflexivity.
-    assumption.
-  + simpl; unfold andp. 
-    simpl in H. 
-    rewrite IHξ1. rewrite IHξ2. 
-    reflexivity.
-    intuition. intuition.
-  + simpl; unfold orp. 
-    simpl in H. 
-    rewrite IHξ1. rewrite IHξ2. 
-    reflexivity.
-    intuition. intuition.
+    intuition.
+  + unfold sep_pred. fold sep_pred.
+    simpl in H.
+    repeat rewrite subst_distr_andp.
+    rewrite IHξ1;
+    try rewrite IHξ2; 
+    first [ reflexivity | intuition ].
+  + unfold sep_pred. fold sep_pred.
+    simpl in H.
+    repeat rewrite subst_distr_andp.
+    repeat rewrite subst_distr_orp.
+    rewrite IHξ1;
+    try rewrite IHξ2; 
+    first [ reflexivity | intuition ].
 Qed.
 
 Lemma wf_expr_fv :
@@ -628,9 +700,9 @@ Proof.
   destruct H as [wf fv].
   intuition.
   unfold nonfreevars.
-  intros w e' H.
-  apply subst_nonfree_prop.
-  intro. apply fv. assumption.
+  intro.
+  rewrite subst_nonfree_prop.
+  apply derives_refl.
   assumption.
 Qed.
 
@@ -646,12 +718,22 @@ Proof.
     assumption.
   + unfold nonfreevars.
     intros.
-    apply subst_nonfree_prop.
+    intro e. rewrite subst_nonfree_prop. trivial.
     apply wf_prop_fv with (Γ := Γ).
     assumption.
     assumption.
     apply wfg.
-    assumption.
+Qed.
+
+Lemma nonfree_distr_andp :
+  forall (P Q : assert) x e,
+    P |-- subst (subst_one x e) P ->
+    Q |-- subst (subst_one x e) Q ->
+    P && Q |-- subst (subst_one x e) (P && Q).
+Proof.
+  intros.
+  rewrite subst_distr_andp.
+  apply andp_derives; assumption.
 Qed.
 
 Lemma wf_guards_vv_nonfree :
@@ -661,18 +743,22 @@ Lemma wf_guards_vv_nonfree :
 Proof.
   intros.
   induction Ξ.
-  + constructor.
+  + unfold nonfreevars.
+    trivial.
   + unfold sep_guards.
     fold sep_guards.
     inversion H.
     subst.
-    split.
     pose (P := wf_guard_vv_nonfree Γ a H2).
+    unfold nonfreevars in *.
+    intro e.
+    apply nonfree_distr_andp.
+    apply nonfree_distr_andp.
     apply P.
-    apply H0.
     apply IHΞ.
     assumption.
-    apply H0.
+    rewrite subst_emp.
+    apply derives_refl.
 Qed.
 
 Lemma wf_guards_nonfree :
@@ -683,16 +769,17 @@ Lemma wf_guards_nonfree :
 Proof.
   intros.
   induction Ξ.
-  + constructor.
+  + unfold nonfreevars. trivial.
   + unfold sep_guards. fold sep_guards.
     inversion H0. subst.
-    split.
+    unfold nonfreevars. intro e.
     pose (P := wf_guard_nonfree x a Γ H H3).
+    apply nonfree_distr_andp. 
+    apply nonfree_distr_andp. 
     apply P.
-    apply H1.
-    apply IHΞ.
-    assumption.
-    apply H1.
+    apply IHΞ; assumption.
+    rewrite subst_emp.
+    apply derives_refl.
 Qed.
 
 Lemma wf_expr_ty_expr_fv :

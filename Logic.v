@@ -1,168 +1,148 @@
 Add LoadPath "vst".
-Require Import msl.msl_direct.
-Require Export Lang.
+Require Export Language.
+Require Export Subst.
+(* Require Export ProgramLogic. *)
+Require Export msl.base.
+Require Export msl.log_normalize.
+Require Export msl.alg_seplog.
+Require Export msl.seplog.
 
-Delimit Scope logic_scope with logic.
+Local Open Scope logic.
+Set Implicit Arguments.
 
-Definition world := var -> option value.
-Definition den (s: state) : world := table_get s.
-Definition defined (y: var) : pred world :=
-   fun w => exists v, w y = Some v.
+(** 
+Here we instantiate the separation logic that will be used to reason about
+our programming language. Assertions built in this language will be
+used to give the axiomatic semantics (proof rules) to the language, and
+will serve as the target of our translation from the type judgements.
 
-Definition eval_to (e: expr) (v:value) : pred world :=
-  fun w => eval w e = Some v.
+If we wanted to, we would define a module with signature SEMAX, which
+would require us to provide a *model* that satisfies the definitions
+and axioms of SEMAX.
+**)
 
-Instance Join_world: Join world := Join_equiv world.
+Module Type SEMAX.
+  Definition adr := nat.
 
-Instance Perm_world : Perm_alg world := _.
-Instance Sep_world : Sep_alg world := _.
-Instance Canc_world : Canc_alg world := _.
-Instance Disj_world : Disj_alg world := _.
+  (** We require that our model satisfy all sorts of algebraic
+goodness, with the end result being all of the treats offered by the
+MSL: NatDed gives us the usual logical facts and connectives.  SepLog
+gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
 
-Definition fun_set (f: var -> option value) (x: var) (y: option value) :=
-  fun i => if eq_dec i x then y else f i.
+  Parameter mpred :Type.
+  Parameter Nm: NatDed mpred.  Existing Instance Nm.
+  Parameter Sm: SepLog mpred.  Existing Instance Sm.
+  Parameter Cm: ClassicalSep mpred.  Existing Instance Cm.
+  Parameter Im: Indir mpred.  Existing Instance Im.
+  Parameter Rm: RecIndir mpred.  Existing Instance Rm.
+  Parameter SIm: SepIndir mpred.  Existing Instance SIm.
+  Parameter SRm: SepRec mpred.  Existing Instance SRm.
+  Parameter mapsto: forall (v1 v2: adr), mpred.
+  
+  Definition assert := world -> mpred.
 
-Definition subst (x : var) (v : option value) (P: pred world) : (pred world) := 
-  fun w => P (fun_set w x v).
-
-Definition equal (x y: var) : pred world :=
-  fun w => w x = w y.
-
-Inductive modvars : stmt -> var -> Prop :=
-| mod_assign: forall x e, modvars (assign_s x e) x
-| mod_seq1: forall x s1 s2, modvars s1 x -> modvars (seq_s s1 s2) x
-| mod_seq2: forall x s1 s2, modvars s2 x -> modvars (seq_s s1 s2) x.
-
-Definition nonfreevars (P: pred world) (x: var) : Prop :=
-  forall stk v, P stk -> P (fun_set stk x v).
-
-Definition subset (S1 S2 : var -> Prop) := forall x, S1 x -> S2 x.
-
-Inductive safe : (list stmt * state) -> Prop :=
-| safe_step: forall s1 s2, step s1 s2 -> safe s2 -> safe s1
-| safe_halt: forall s, safe (nil, s).
-
-Definition guards (P: pred world) (ss : list stmt) : Prop :=
-  forall s, P (den s) -> safe (ss, s).
-
-Definition semax (P: pred world) (s: stmt) (Q: pred world): Prop :=
-  forall F, subset (modvars s) (nonfreevars F) ->
-    forall k, guards (Q * F) k -> guards (P * F) (s :: k).
-
-Notation "{{ P }} s {{ Q }}" := (semax P%pred s Q%pred) (at level 90).
-
-Lemma semax_skip:
-  forall P, {{ P }} skip_s {{ P }}. (*(semax P skip_s P).*)
-Proof.
-  intros P.
-  unfold semax.
-  intros F H k HG st HP.
-  eapply safe_step. constructor. 
-  eauto.
-Qed.
-
-Lemma semax_seq:
-  forall P Q R s1 s2, 
-    {{ P }} s1 {{ Q }} -> {{ Q }} s2 {{ R }} -> 
-    {{ P }} seq_s s1 s2 {{ R }} .
-Proof.  
-  intros P Q R s1 s2.
-  intros S1 S2.
-  intros F H k H0 s H1.
-  assert (safe ( s1 :: s2 :: k, s)).
-  Focus 2.
-    inv H2; eapply safe_step; [constructor | eauto]; auto.
-  apply (S1 F); auto.
-  intros ? ?. apply H. apply mod_seq1. auto.
-  apply S2.
-  intros ? ?. apply H. apply mod_seq2. auto.
-  auto.
-Qed.
-
-Lemma semax_assign:
-  forall P x e v,
-    {{ (subst x (Some v) P && eval_to e v) }} assign_s x e {{ P }}.
-Proof.
-  intros P x e v.
-  intros F S k H0 st H1.
-  destruct H1 as [stk1 [stk2 [A [[B C] D]]]].
-  destruct A as [E1 E2]. rewrite E2 in *. 
-  eapply safe_step. constructor.
-  unfold eval_to in C.
-  unfold den in *.
-  rewrite <- E1. symmetry in C. apply C.
-  apply H0.
-  exists (fun_set (table_get st) x (Some v)). 
-  exists (fun_set (table_get st) x (Some v)). 
-  split; [| split].
-  split; auto.
-  unfold den in *.
-  unfold subst in B. rewrite <- E1. apply B.
-  unfold den in *. 
-  apply (S x).
-  apply mod_assign. 
-  assumption.
-Qed.
-
-Lemma semax_frame:
-  forall F P s Q,
-    subset (modvars s) (nonfreevars F) ->
-    {{ P }} s {{ Q }} ->
-    {{ (P * F) }} s {{ (Q * F) }}.
-Proof.
-  repeat intro.
-  rewrite sepcon_assoc in H2,H3. 
-  assert (guards (P * (F * F0)) (s :: k)).
-  apply H0. intros ? ?. 
-  unfold subset in H.
-  specialize (H x H4).
-  specialize (H1 _ H4).
-  repeat intro. 
-  destruct H5 as [stk1 [stk2 [[? ?] [? ?]]]].
-  subst.
-  exists (fun_set stk x v).
-  exists (fun_set stk x v).
-  split; auto.
-  split; auto. 
-  apply H2; auto.
-  apply H4; auto.
-Qed.
-
-Lemma semax_consequence:
-  forall P P' s Q Q',
-   P |-- P' -> Q' |-- Q -> {{ P' }} s {{ Q' }} ->
-   {{ P }} s {{ Q }}.
-Proof.
-  repeat intro.
-  apply (H1 F); auto.
-  intros ? ?.
-  apply H3.
-  eapply sepcon_derives; try apply H5; auto.
-  eapply sepcon_derives; try apply H4; auto.
-Qed.
-
+  Definition pure{A : Type} {N : NatDed A } {S : SepLog A} (P : A) := P |-- emp.
+  Axiom sepcon_pure_andp : forall {A : Type} {N : NatDed A} {S : SepLog A} (P Q : A), pure P -> pure Q -> ((P * Q) = (P && Q)).
  
-Example ex1: 
-  {{ fun s => s 0 = (Some (int_v 0)) }} skip_s {{ TT }}.
-Proof.
-  eapply semax_consequence with (P' := TT) (Q' := TT) .
-  repeat intro. constructor. constructor.
-  apply semax_skip.
-Qed.
+  Definition eval_to (e: expr) (v:value) : assert :=
+    fun (w : world) => !!(eval w e = v) && emp.
 
-Definition x : var := 0.
-Definition one := int_v 1.
-Definition n : expr := (value_e one).
-Definition P := fun s => eval s x = Some one.
+  Definition subst_pred sub (P: assert) : (assert) := 
+    fun w =>
+      P (fun i => eval w (sub i), hp w).
+  
+  Definition subst_pred_var sub (P: assert) : assert :=
+    fun w =>
+      P (fun i => eval w (var_e (sub i)), hp w).
+    
+  Instance Subst_pred_var : Subst (assert) var var := subst_pred_var.
+  Instance Subst_pred : Subst (assert) var expr := subst_pred.
+                 
+  Definition equal (x y: var) : assert :=
+    fun w => !!(stk w x = stk w y).
 
-Example ex2:
-  {{ TT }} assign_s x n {{ P }}.
-Proof.
-  apply semax_consequence with 
-    (P' := (subst x (Some one) P && eval_to n one)%pred) (Q' := P).
-  repeat intro. unfold P. unfold subst. unfold fun_set. 
-  split; reflexivity. auto.
-  apply semax_assign.
-Qed.
+  Axiom mapsto_conflict:  forall a b c, mapsto a b * mapsto a c |-- FF.
+  Parameter allocpool: forall (b: adr), mpred.
+  Axiom alloc: forall b, allocpool b = ((!! (b > 0) && mapsto b 0) * allocpool (S b)).
 
-(* ; specialize (H1 _ H4). *)
+  Definition subset (S1 S2 : var -> Prop) := forall x, S1 x -> S2 x.
+  Definition not_free_in (v : var) (v' : var) := v <> v'.
+  Definition unique_sub s (v : var) :=
+    exists v', (s v = v' /\ (forall x, x <> v -> not_free_in v' (s x))).
+  (* Definition nonfreevars (P: assert) (x: var) : Prop := *)
+  (*     P |-- (ALL v : _, subst_pred (subst_one x v) P). *)
+  Definition nonfreevars (P: assert) (x: var) : Prop :=
+    forall v, (P |-- subst_pred (subst_one x v) P).
+  
+  Definition procspec := (pname * proc * assert * assert)%type.
+  Definition procspecs := list procspec.
+  
+  Inductive semax : procspecs -> assert -> stmt -> assert -> Prop :=
+  | semax_skip : 
+      forall F P, semax F P skip_s P
+  | semax_assign :
+      forall F P x e,
+        semax F (EX v : value, 
+                      eval_to e v 
+                   && subst_pred (subst_one x e) P) (assign_s x e)  P 
+  | semax_proc :
+      forall f p (F : procspecs) P Q,
+        In (f, p, P, Q) F ->
+        semax F P (proc_s f (p_args p) (p_ret p) (p_mod p)) Q
+  | semax_seq : 
+      forall F P Q R s1 s2,
+        semax F P s1 Q -> semax F Q s2 R -> 
+        semax F P (seq_s s1 s2) R
+  | semax_if :
+      forall F P Q e s1 s2,
+        semax F (eval_to e (int_v 1) && P) s1 Q -> 
+        semax F (eval_to e (int_v 0) && P) s2 Q ->
+        semax F P (if_s e s1 s2) Q
+  | semax_subst :
+      forall F P s Q θ,
+        semax F P s Q -> (forall x, (modvars s x -> unique_sub θ x)) ->
+        semax F (subst θ P) (subst θ s) (subst θ Q)
+  | semax_pre_post :
+      forall F P P' s Q Q',
+        (P |-- P') -> (Q' |-- Q) -> semax F P' s Q' ->
+        semax F P s Q
+  | semax_frame :
+      forall F P Q R s,
+        semax F P s Q -> subset (modvars s) (nonfreevars R) ->
+        semax F (P * R)%logic s (Q * R)%logic.
+      
+  Notation "F |- {{ P }} s {{ Q }}" := (semax F P s Q) (no associativity, at level 90).
+  
+  Definition fst4{A B C D : Type} (t : (A * B * C * D)) :=
+    match t with
+      | (a,_,_,_) => a
+    end.
+
+  Definition snd4{A B C D : Type} (t : (A * B * C * D)) :=
+    match t with
+      | (_,a,_,_) => a
+    end.
+
+  Definition thd4{A B C D : Type} (t : (A * B * C * D)) :=
+    match t with
+      | (_,_,a,_) => a
+    end.
+
+  Definition fth4{A B C D : Type} (t : (A * B * C * D)) :=
+    match t with
+      | (_,_,_,a) => a
+    end.
+
+  Inductive semax_prog : procspecs -> program -> Prop :=
+  | semax_entry_p :
+      forall F s,
+        semax F emp s TT ->
+        semax_prog F (entry_p s)
+  | semax_procdecl_p :
+      forall F e body ps prog,
+        p_body (snd4 ps) = seq_s body (return_s e) ->
+        Forall (fun ps' => fst4 ps' <> fst4 ps) F ->
+        semax (ps :: F) (thd4 ps) body (subst (subst_one (p_ret (snd4 ps)) e) (fth4 ps)) ->
+        semax_prog (ps :: F) prog ->
+        semax_prog F (procdecl_p (fst4 ps) (snd4 ps) prog).
+End SEMAX.

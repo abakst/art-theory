@@ -1,14 +1,13 @@
 Add LoadPath "vst".
 
 Require Import Coq.Unicode.Utf8.
-Require Import msl.msl_direct.
 Require Import Language.
 Require Import Types.
 Require Import List.
 Import ListNotations.
 Require Import ListSet.
 Require Import Subst.
-Require Import Translation.
+Require Export Translation.
  
 Reserved Notation "( Φ ; Γ ; Ξ ) ⊢ s ::: O" (at level 0, no associativity).
 
@@ -153,7 +152,7 @@ Inductive stmt_type : proc_env -> type_env -> guards -> stmt -> type_env -> Prop
 | t_if : 
     forall Φ Γ Γ1 Γ2 Γ' Ξ e p s1 s2, 
       expr_type Γ Ξ e { ν : int_t | p } ->
-      ( Φ ; Γ ; (not_r (e .= (int_v 0))) :: Ξ ) ⊢ s1 ::: Γ1 -> 
+      ( Φ ; Γ ; (e .= (int_v 1)) :: Ξ ) ⊢ s1 ::: Γ1 -> 
       ( Φ ; Γ ; (e .= (int_v 0)) :: Ξ) ⊢ s2 ::: Γ2 ->
       join_env Ξ Γ1 Γ2 Γ' ->
 (* ------------------------------------------------------------------- *)

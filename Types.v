@@ -1,11 +1,11 @@
 Add LoadPath "vst".
 
 Require Import Coq.Unicode.Utf8.
+Require Import msl.eq_dec.
 Require Import Language.
 Require Import List.
 Import ListNotations.
 Require Import Subst.
-Require Import msl.msl_direct.
 
 Definition vv : var := V 0.
 

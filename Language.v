@@ -120,13 +120,17 @@ Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
 Instance Subst_stmt : Subst stmt var var := subst_stmt.
 
 Definition state := var -> value.
+Definition heap  := nat -> option value.
+Definition world := (state * heap)%type.
+Definition stk (w : world) : state := fst w.
+Definition hp (w : world) : heap := snd w.
 
 Parameter eval_fun : pname -> expr -> expr -> value.
 
 Fixpoint eval s e :=
   match e with
     | value_e v => v
-    | var_e v   => s v
+    | var_e v   => stk s v
     | fun_e f e1 e2 => 
       let v1 := eval s e1 in
       let v2 := eval s e2 in
@@ -135,3 +139,14 @@ Fixpoint eval s e :=
 
 Definition subst_one (x : var) (e : expr) :=
   fun i => if eq_dec i x then e else (var_e i).
+
+Inductive modvars : stmt -> var -> Prop :=
+| mod_assign: forall x e, modvars (assign_s x e) x
+| mod_proc1: forall f xs r os x, 
+               In x os ->
+               modvars (proc_s f xs r os) x
+| mod_proc2: forall f xs r os, 
+               modvars (proc_s f xs r os) r
+| mod_seq1: forall x s1 s2, modvars s1 x -> modvars (seq_s s1 s2) x
+| mod_seq2: forall x s1 s2, modvars s2 x -> modvars (seq_s s1 s2) x.
+

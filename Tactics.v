@@ -1,4 +1,7 @@
 Add LoadPath "vst".
+Require Import msl.Coqlib2.
+Require Import msl.log_normalize.
+Require Import msl.eq_dec.
 Require Export CpdtTactics.
 Require Import Types.
 Require Import Judge.
@@ -6,7 +9,6 @@ Require Import Subst.
 Require Import ProgramLogic.
 Require Import Language.
 Require Import Translation.
-Require Import msl.msl_direct.
 Require Import Coq.Unicode.Utf8.
 
 (** Generally Useful ?? **)
@@ -229,3 +231,26 @@ Ltac btapply k :=
     | [ H : appcontext[?f] |- ?f ] => destruct H; k
     | [ H : forall _:?t, _, x:?t |- _ ] => specialize (H x); btapply k
   end.
+
+Lemma sepcon_pure :
+  forall (A : Type) (ND: NatDed A) (SL : SepLog A) (P Q : A), 
+    pure P -> pure Q -> pure (P * Q).
+Proof.
+  intros.
+  unfold pure.
+  rewrite sepcon_pure_andp.
+  apply andp_left1. apply H. assumption. assumption.
+Qed.
+
+Ltac purity :=
+  first [
+      apply sep_env_pure
+    | apply sep_ty_pure
+    | apply sep_pred_pure
+    | apply sep_base_pure
+    | apply sep_guard_pure
+    | apply andp_left1; purity
+    | apply andp_left2; purity
+    | apply andp_right; purity
+    | apply sepcon_pure; purity
+    ].
