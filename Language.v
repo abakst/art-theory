@@ -12,11 +12,14 @@ Import ListNotations.
 
 Delimit Scope lang_scope with lang.
 
-Inductive var : Set := V : nat -> var.
+Inductive var   : Set := V : nat -> var.
+Inductive loc   : Set := L : nat -> loc.
 Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
-  | int_v  : nat -> value.
+  | int_v  : nat -> value
+  | loc_v  : loc -> value
+  | null   : value.
 
 Inductive expr :=
   | value_e : value -> expr
@@ -41,6 +44,8 @@ Record proc' {s} :=
 
 Inductive stmt :=
 | skip_s   : stmt
+| pad_s    : var -> var -> stmt
+| alloc_s  : var -> var -> expr -> stmt
 | assign_s : var -> expr -> stmt
 | proc_s   : pname -> list var -> var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
 | seq_s    : stmt -> stmt -> stmt
@@ -60,12 +65,12 @@ Coercion value_e: value >-> expr.
 (* Coercion var_e: var >-> expr. *)
 
 (*** Equality ***)
-Instance EqDec_value : EqDec value := _.
+Instance EqDec_var : EqDec var := _.
 Proof.
-  hnf. decide equality; apply eq_dec.
+  hnf. decide equality; try apply eq_dec.
 Qed.
 
-Instance EqDec_var : EqDec var := _.
+Instance EqDec_loc : EqDec loc := _.
 Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
@@ -74,6 +79,12 @@ Instance EqDec_pname : EqDec pname := _.
 Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
+
+Instance EqDec_value : EqDec value := _.
+Proof.
+  hnf. decide equality; apply eq_dec.
+Qed.
+
 
 Instance EqDec_expr : EqDec expr := _.
 Proof.
@@ -89,10 +100,15 @@ Qed.
 
 (*** Substitutions ***)
 Definition subst_var (s:subst_t var var) (v:var) := s v.
+Definition subst_loc (s:subst_t loc loc) (l:loc) := s l.
 Instance Subst_var_var : Subst var var var := subst_var.
+Instance Subst_loc_loc : Subst loc loc loc := subst_loc.
 
 Definition subst_var_one (v : var) (v' : var) : subst_t var var  :=
   fun i => if eq_dec i v then v' else i.
+
+Definition subst_loc_one (l : loc) (l' : loc) : subst_t loc loc  :=
+  fun i => if eq_dec i l then l' else i.
 
 Fixpoint subst_expr_var (s:subst_t var var) (e:expr) := 
   match e with 
@@ -141,6 +157,8 @@ Definition subst_one (x : var) (e : expr) :=
   fun i => if eq_dec i x then e else (var_e i).
 
 Inductive modvars : stmt -> var -> Prop :=
+| mod_alloc1 : forall l v e, modvars (alloc_s l v e) l
+| mod_alloc2 : forall l v e, modvars (alloc_s l v e) v
 | mod_assign: forall x e, modvars (assign_s x e) x
 | mod_proc1: forall f xs r os x, 
                In x os ->
@@ -149,4 +167,3 @@ Inductive modvars : stmt -> var -> Prop :=
                modvars (proc_s f xs r os) r
 | mod_seq1: forall x s1 s2, modvars s1 x -> modvars (seq_s s1 s2) x
 | mod_seq2: forall x s1 s2, modvars s2 x -> modvars (seq_s s1 s2) x.
-

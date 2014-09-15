@@ -22,8 +22,6 @@ and axioms of SEMAX.
 **)
 
 Module Type SEMAX.
-  Definition adr := nat.
-
   (** We require that our model satisfy all sorts of algebraic
 goodness, with the end result being all of the treats offered by the
 MSL: NatDed gives us the usual logical facts and connectives.  SepLog
@@ -37,7 +35,8 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
   Parameter Rm: RecIndir mpred.  Existing Instance Rm.
   Parameter SIm: SepIndir mpred.  Existing Instance SIm.
   Parameter SRm: SepRec mpred.  Existing Instance SRm.
-  Parameter mapsto: forall (v1 v2: adr), mpred.
+  Parameter mapsto: forall (a: loc)(v: value), mpred.
+                         
   
   Definition assert := world -> mpred.
 
@@ -46,6 +45,11 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
  
   Definition eval_to (e: expr) (v:value) : assert :=
     fun (w : world) => !!(eval w e = v) && emp.
+  
+  Definition emapsto (e1 e2: expr) :=
+    EX a : loc,  
+      EX v : value, 
+             eval_to e1 (loc_v a) && eval_to e2 v && (fun _ => mapsto a v).
 
   Definition subst_pred sub (P: assert) : (assert) := 
     fun w =>
@@ -62,8 +66,8 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
     fun w => !!(stk w x = stk w y).
 
   Axiom mapsto_conflict:  forall a b c, mapsto a b * mapsto a c |-- FF.
-  Parameter allocpool: forall (b: adr), mpred.
-  Axiom alloc: forall b, allocpool b = ((!! (b > 0) && mapsto b 0) * allocpool (S b)).
+  (* Parameter allocpool: forall (b: adr), mpred. *)
+  (* Axiom alloc: forall b, allocpool b = ((!! (b > 0) && mapsto b 0) * allocpool (S b)). *)
 
   Definition subset (S1 S2 : var -> Prop) := forall x, S1 x -> S2 x.
   Definition not_free_in (v : var) (v' : var) := v <> v'.
@@ -85,6 +89,12 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
         semax F (EX v : value, 
                       eval_to e v 
                    && subst_pred (subst_one x e) P) (assign_s x e)  P 
+  | semax_alloc : 
+      forall F P l x e,
+        semax F ((EX v : value, eval_to e v)
+                   && subst_pred (subst_one x e) P) 
+                (alloc_s l x e) 
+                (P * emapsto (var_e l) e) 
   | semax_proc :
       forall f p (F : procspecs) P Q,
         In (f, p, P, Q) F ->

@@ -243,29 +243,101 @@ Lemma wf_env_join :
 Proof. 
   intros. apply H.
 Qed.
+
+Lemma wf_heap_cons_env :
+  forall G H x t,
+    bind_not_in x H ->
+    wf_heap G H -> wf_heap ((x,t) :: G) H.
+Proof.
+  intros G H x t nomem wf.
+  induction H.
+  + constructor.
+  + inversion wf.
+    subst.
+    constructor; try assumption.
+    unfold bind_not_in in nomem.
+    rewrite Forall_forall in nomem.
+    unfold var_not_in.
+    rewrite Forall_forall.
+    intros [x' t'] [x'mem | x'mem].
+    inversion x'mem; subst.
+    specialize (nomem (l , (x0, t0))).
+    intro F.
+    apply nomem. left. reflexivity. simpl in F. simpl. congruence.
+    unfold var_not_in in H4.
+    rewrite Forall_forall in H4.
+    apply (H4 (x',t')). assumption.
+    apply wf_env_ty_cons. assumption.
+Qed.
+
+Ltac freshvar :=
+  match goal with 
+    | [ H : fresh ?v _ _ |- ?v <> ν ] =>
+      apply H
+    | [ H : fresh ?v _ _ |- var_not_in ?v _ ] =>
+      apply H
+    | [ H : fresh ?v _ _ |- bind_not_in ?v _ ] =>
+      apply H
+  end.
+    
+Ltac varin :=
+  try (assumption || congruence );
+  match goal with
+    | H : (?x, _) ∈ _ |- (?x, _) ∈ _ => eapply H
+    | H : (?x, _ ) ∈ ?G |- (?x, _) ∈ (_ :: ?G) =>
+      first [ right; varin | left; varin ]
+    | _ => idtac
+  end.
+
+Ltac wellformed_expr :=
+  try first [ constructor 
+            | eapply wf_var; try varin ].
+
+Ltac wellformed :=
+  match goal with
+    | |- wf_type _ _ => constructor; wellformed
+    | |- wf_prop _ _ => constructor; wellformed
+    | |- wf_expr _ _ => constructor; wellformed
+    | H : expr_type _ _ ?e _ |- wf_expr _ ?e => induction H; wellformed_expr
+  end.
     
 Lemma wf_env_stmt :
-  forall P G G' X s,
+  forall P G G' H H' X s,
     wf_env G ->
-    (P ; G ; X) ⊢ s ::: G' ->
+    (P ; G ; H ; X) ⊢ s ::: (G' ; H') ->
     wf_env G'.
 Proof.
-  intros P G G' X s WF J.
+  intros P G G' H H' X s WF J.
   induction J.
   + assumption.
   + assumption. 
-  + apply wf_env_var. assumption. assumption. assumption.
-      constructor.
-      constructor.
-      constructor.
-      subst.
-      induction H1. constructor.
-      apply wf_var with (t := { ν : τ0 | φ0}).
-      unfold In. right. assumption.
-      apply IHexpr_type; assumption.
+  + apply wf_env_var; try first [assumption | freshvar | wellformed].
+    apply IHexpr_type; assumption.
+  + apply wf_env_var; ( assumption || constructor || freshvar || wellformed ); constructor.
   + apply wf_env_join with (X := Ξ) (G' := Γ1) (G'' := Γ2); assumption.
-  + apply IHJ2. apply IHJ1. assumption.
+  + apply IHJ2; apply IHJ1; assumption.
 Qed.
+
+Lemma wf_heap_stmt :
+  forall P G G' H H' X s,
+    wf_heap G H ->
+    (P ; G ; H ; X) ⊢ s ::: (G' ; H') ->
+    wf_heap G' H'.
+Proof.
+  intros until s. intros wf judge.
+  induction judge.
+  + assumption.
+  + admit.
+  + apply wf_heap_cons_env. 
+    unfold var_not_in in H0. rewrite Forall_forall in H0.
+    unfold bind_not_in. rewrite Forall_forall.
+    intros [l [x t]] xin. simpl.
+    inversion wf; subst. inversion xin. subst.
+    apply (H0 (x, t)).
+    apply in_inv in xin.
+    destruct xin.
+    inversion H7. subst.
+    assumption.
 
 Lemma wf_guards_cons :
   forall Γ Ξ xt,
