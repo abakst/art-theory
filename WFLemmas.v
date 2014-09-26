@@ -79,7 +79,7 @@ Proof.
   + constructor.
   + apply wf_var with { ν : τ | φ }. 
     assumption.
-  + apply IHexpr_type.
+  + auto. 
 Qed.
  
 Ltac invert_wf_expr :=
@@ -311,12 +311,67 @@ Proof.
   induction J.
   + assumption.
   + assumption. 
-  + apply wf_env_var; try first [assumption | freshvar | wellformed].
+  + assumption.
+  + apply wf_env_var; try first [assumption | freshvar | wellformed];
     apply IHexpr_type; assumption.
   + apply wf_env_var; ( assumption || constructor || freshvar || wellformed ); constructor.
-  + apply wf_env_join with (X := Ξ) (G' := Γ1) (G'' := Γ2); assumption.
-  + apply IHJ2; apply IHJ1; assumption.
+  + eapply wf_env_join; eauto.
+  + auto.
 Qed.
+
+Ltac freshloc l :=
+  destruct l;
+  match goal with
+    | H : fresh_loc ?x _ _ |- loc_not_in ?x _ => apply H
+  end.
+
+Lemma fresh_imp_loc_not_in :
+  forall l G H,
+    fresh_loc l G H -> loc_not_in l H.
+Proof.
+  intros; destruct l; firstorder.
+Qed.
+
+Lemma fresh_imp_bind_not_in :
+  forall x G H,
+    fresh x G H -> bind_not_in x H.
+Proof.
+  firstorder.
+Qed.
+
+Lemma fresh_imp_var_not_in :
+  forall x G H,
+    fresh x G H -> var_not_in x G.
+Proof.
+  firstorder.
+Qed.
+
+Lemma fresh_imp_var_not_vv :
+  forall x G H,
+    fresh x G H -> x <> ν.
+Proof.
+  firstorder.
+Qed.
+
+Hint Resolve 
+     wf_env_ty_cons
+     wf_heap_cons_env
+     fresh_imp_loc_not_in
+     fresh_imp_var_not_vv
+     fresh_imp_var_not_in
+     fresh_imp_bind_not_in
+: wf.
+
+(** Or should there just be a tactic...? **)
+
+Ltac freshness :=
+  unfold join_heap in *;
+  (solve [try constructor; eauto with wf]
+  || match goal with
+       | H : appcontext[wf_heap ?x ?y] |- wf_heap ?x ?y => apply H
+       | H : wf_heap _ _ |- wf_heap _ _ =>
+         inversion H; subst; freshness
+     end).
 
 Lemma wf_heap_stmt :
   forall P G G' H H' X s,
@@ -324,20 +379,8 @@ Lemma wf_heap_stmt :
     (P ; G ; H ; X) ⊢ s ::: (G' ; H') ->
     wf_heap G' H'.
 Proof.
-  intros until s. intros wf judge.
-  induction judge.
-  + assumption.
-  + admit.
-  + apply wf_heap_cons_env. 
-    unfold var_not_in in H0. rewrite Forall_forall in H0.
-    unfold bind_not_in. rewrite Forall_forall.
-    intros [l [x t]] xin. simpl.
-    inversion wf; subst. inversion xin. subst.
-    apply (H0 (x, t)).
-    apply in_inv in xin.
-    destruct xin.
-    inversion H7. subst.
-    assumption.
+  intros until s; intros wf judge; induction judge; freshness.
+Qed.
 
 Lemma wf_guards_cons :
   forall Γ Ξ xt,
@@ -371,49 +414,49 @@ Proof.
   apply xmem.
 Qed.
 
-Lemma env_monotonic :
-  forall P X G G' s,
-    (P ; G ; X) ⊢ s ::: G' ->
-    Forall (fun xt => xt ∈ G') G.
+Lemma In_imp_var_in :
+  forall xt G, xt ∈ G -> var_in (fst xt) G.
 Proof.
-  intros.
-  rewrite Forall_forall.
-  induction H.
-  + auto.
-  + intros x xin.
-    right. assumption.
-  + intros x xin.
-    right. assumption.
-  + intros x' x'in. 
-    unfold join_env in H2.
-    destruct H2.
-    destruct H3.
-    specialize (H3 x').
-    apply H3.
-    split.
-    apply IHstmt_type1.
-    assumption.
-    apply IHstmt_type2.
-    assumption.
-  + intros.
-    apply IHstmt_type2.
-    apply IHstmt_type1.
-    assumption.
+  unfold var_in. 
+  destruct xt as [x t].
+  intros. exists t. auto.
+Qed.
+
+Hint Resolve In_imp_var_in : env.
+
+Lemma env_monotonic :
+  forall P X G G' Hp Hp' s,
+    (P ; G ; Hp ; X) ⊢ s ::: (G' ; Hp') ->
+    forall x, var_in x G -> var_in x G'.
+Proof.
+  Ltac envmono := 
+    auto with env ||
+    (intros; unfold var_in; 
+    match goal with
+      | H: var_in ?x ?G |- (exists _, _) => destruct H;
+      match goal with
+        | t: reft_type |- _ =>
+          exists t; first [right; apply H | try left; apply H ]
+      end
+      | H : appcontext[join_env] |- _ => apply H; envmono
+    end).
+  intros; induction H; envmono. 
 Qed.
 
 Lemma wf_expr_bigger :
   forall G G' e,
     wf_expr G e ->
-    Forall (fun xt => xt ∈ G') G ->
+    (forall x, var_in x G -> var_in x G') ->
     wf_expr G' e.
 Proof.
   intros.
-  rewrite Forall_forall in H0.
   induction e.
   + constructor.
   + inversion H.
-    apply wf_var with (t := t).
-    apply H0.
+    unfold var_in in *.
+    destruct (H0 v).
+    exists t. apply H3.
+    apply wf_var with x.
     assumption.
     apply wf_vv.
   + inversion H.
@@ -425,7 +468,7 @@ Qed.
 Lemma wf_prop_bigger :
   forall G G' p,
     wf_prop G p ->
-    Forall (fun xt => xt ∈ G') G ->
+    (forall x, var_in x G -> var_in x G') ->
     wf_prop G' p.
 Proof.
   intros.
@@ -440,7 +483,7 @@ Qed.
 Lemma wf_guard_bigger :
   forall G G' g,
     wf_guard G g ->
-    Forall (fun xt => xt ∈ G') G ->
+    (forall x, var_in x G -> var_in x G') ->
     wf_guard G' g.
 Proof.
   intros.
@@ -449,47 +492,43 @@ Proof.
   apply H.
 Qed.  
 
+Lemma wf_guards_join :
+  forall Ξ Γ1 Γ2 Γ y,
+    join_env Ξ Γ1 Γ2 Γ -> 
+      var_in y Γ1 -> 
+      var_in y Γ2 ->
+      var_in y Γ.
+Proof.
+  intros.
+  unfold join_env in *.
+  rewrite Forall_forall in *.
+  apply H.
+  auto.
+Qed.
+
+Hint Resolve env_monotonic wf_guards_join wf_guard_bigger wf_env_stmt : wf.
+
 Lemma wf_guards_stmt :
-  forall P G G' X s,
-    (P ; G ; X) ⊢ s ::: G' ->
+  forall P G G' H H' X s,
+    (P ; G ; H ; X) ⊢ s ::: (G' ; H') ->
     wf_env G ->
     wf_guards G X ->
     wf_guards G' X.
 Proof.
-  intros P G G' X s J wfenv wfguards.
+  intros P G G' H H' X s J wfenv wfguards.
   induction J.
   + assumption.
   + apply wf_guards_cons; assumption.
+  + assumption.
   + apply wf_guards_cons; assumption.
-  + destruct H0.
-    destruct H1.
-    unfold wf_guards.
-    rewrite Forall_forall.
-    intros x' x'in.
-    apply wf_guard_bigger with (G := Γ).
-    unfold wf_guards in wfguards.
-    rewrite Forall_forall in wfguards.
-    apply wfguards.
-    assumption.
-    rewrite Forall_forall.
-    intros [x'' t''] x''in.
-    apply H1.
-    split.
-    pose (env_monotonic Φ _ Γ Γ1 s1 J1) as monotonic.
-    rewrite Forall_forall in monotonic.
-    apply monotonic.
-    assumption.
-    pose (env_monotonic Φ _ Γ Γ2 s2 J2) as monotonic.
-    rewrite Forall_forall in monotonic.
-    apply monotonic.
-    assumption.
-  + apply IHJ2. 
-    apply wf_env_stmt with (P := Φ) (G := Γ) (X := Ξ) (s := s1).
-    assumption.
-    assumption.
-    apply IHJ1.
-    assumption.
-    assumption.
+  + apply wf_guards_cons; assumption. 
+  + unfold wf_guards in *;
+    rewrite Forall_forall in *; 
+    intros.
+    eapply wf_guard_bigger; eauto. 
+    intros y yin.
+    eauto with wf.
+  + eauto with wf.
 Qed.
 
 Lemma wf_schema_ret_not_vv :
@@ -500,7 +539,7 @@ Proof.
   inversion H.
   inversion H2.
   subst.
-  destruct S as [xs ts [xret tret]]. simpl in *.
+  destruct S as [xs ts hi ho [xret tret]]. simpl in *.
   inversion H4. subst.
   assumption.
 Qed.

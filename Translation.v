@@ -38,6 +38,15 @@ Fixpoint sep_env (Γ : type_env) : assert :=
     | (x,t) :: Γ' => sep_ty (var_e x) t && sep_env Γ'
   end && emp.
 
+Fixpoint sep_heap (Σ : heap_env) : assert :=
+  match Σ with
+    | nil => emp
+    | (L n, (x, t))::Σ' =>
+      (eval_to (var_e (V n)) (int_v 0 )
+               || (emapsto (var_e (V n)) (var_e x)
+                   * sep_ty (var_e x) t)) * sep_heap Σ'
+  end.
+
 Fixpoint sep_guards (Δ : guards) : assert :=
   match Δ with
     | nil => TT
@@ -46,8 +55,10 @@ Fixpoint sep_guards (Δ : guards) : assert :=
 
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 
   match S with
-    | mkSchema xs ts (x, t) =>
-      (f, mkProc xs x [] s, sep_env (combine xs ts), sep_ty (var_e x) t)
+    | mkSchema xs ts hi ho (x, t) =>
+      (f, mkProc xs x [] s, 
+          sep_env (combine xs ts) * TT, 
+          sep_ty (var_e x) t * TT)
   end.
 
 Fixpoint sep_proc_env (Φ : proc_env) : procspecs :=

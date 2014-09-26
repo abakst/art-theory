@@ -13,7 +13,7 @@ Import ListNotations.
 Delimit Scope lang_scope with lang.
 
 Inductive var   : Set := V : nat -> var.
-Inductive loc   : Set := L : nat -> loc.
+Inductive loc  : Set := L : nat -> loc.
 Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
