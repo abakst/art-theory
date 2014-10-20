@@ -53,7 +53,6 @@ Proof.
   pose (var_val Γ x b φ H).
   apply derives_trans with (Q := EX x0 : base_of_type b, (fun s => !!(eval s (var_e x) = val_of_base b x0))).
   assumption.
-  destruct b.
   apply exp_left.
   intro xv.
   simpl.
@@ -62,7 +61,7 @@ Proof.
   intro.
   rewrite H0.
   simpl in xv.
-  apply (exp_right (int_v xv)).
+  apply (exp_right (val_of_base b xv)).
   apply prop_right.
   reflexivity.
 Qed.
@@ -79,6 +78,31 @@ Proof.
   * apply IHexpr_type. 
 Qed.
 
+Lemma expr_eval_ty' :
+  forall Γ Ξ e T,
+    expr_type Γ Ξ e T ->
+    sep_env Γ |-- sep_base e (reft_base T).
+Proof.
+  intros.
+  unfold sep_base.
+  rewrite <- exp_andp1.
+  apply andp_right.
+  2: apply sep_env_pure.
+  dependent induction H;
+    match goal with
+      | v : value |- appcontext[EX _ : _, _] => 
+        destruct v;
+          match goal with
+            | z : _ |- _ => apply (exp_right z)
+            | _ => apply (exp_right tt)
+          end;
+          simpl; intro; normalize
+      | v : var |- _ => eapply var_val; eauto
+      | H : subtype _ _ _ _ |- _ =>
+        inversion H; subst; assumption
+    end.
+Qed.
+
 Lemma expr_eval_ty :
   forall Γ Ξ e b φ,
     expr_type Γ Ξ e { ν : b | φ } ->
@@ -86,20 +110,11 @@ Lemma expr_eval_ty :
       (EX v : base_of_type b , (fun s => !!(eval s e = val_of_base b v))).
 Proof.
   intros.
-  apply expr_eval with (e := e) (b := b) (φ := φ) (Ξ := Ξ) in H.
-  apply derives_trans with 
-    (Q := EX v : value, (fun s => !!(eval s e = v))).
-  assumption.
-  apply exp_left. intro vv.
-  destruct b.
-  destruct vv.
-  simpl.
-  intro w.
-  apply prop_left.
-  intro.
-  apply (exp_right n).
-  apply prop_right.
-  assumption.
+  apply derives_trans with
+    (Q := sep_base e (reft_base { ν : b | φ })).
+  eapply expr_eval_ty'; eauto.
+  unfold sep_base. 
+  rewrite <- exp_andp1. apply andp_left1. normalize.
 Qed.
 
 Lemma exfalso_etype_fun :

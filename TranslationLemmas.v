@@ -234,6 +234,32 @@ Proof.
   apply sep_env_pure.
 Qed.
 
+Lemma heap_subtype_interp :
+  forall Γ Ξ Σ Σ',
+    wf_guards Γ Ξ ->
+    heap_subtype Γ Ξ Σ Σ' ->
+    sep_env Γ && sep_guards Ξ |-- sep_heap Σ --> sep_heap Σ'.
+Proof.
+  intros.
+  rewrite <- imp_andp_adjoint.
+  unfold heap_subtype in *.
+  unfold sep_heap.
+  induction Σ.
+  destruct Σ'.
+  apply andp_left2. apply derives_refl.
+  destruct H0.
+  unfold eq_dom in H0.
+  destruct (H0 (fst p)).
+  exfalso. unfold loc_in in H3. exists (snd p). left. destruct p. reflexivity.
+  inversion H3.
+  destruct Σ'.
+  destruct H0.
+  unfold eq_dom in H0.
+  destruct (H0 (fst a)).
+  unfold loc_in in H2. 
+  destruct H2. exists (snd a). left. destruct a. reflexivity. inversion H2.
+  unfold sep_heap. fold sep_heap.
+
 Lemma vv_sub_env_eval :
   forall e ν x v w,
     x <> ν -> 

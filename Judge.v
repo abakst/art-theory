@@ -15,87 +15,108 @@ Reserved Notation "( Φ ; Γ ; S ; Ξ ) ⊢ s ::: ( O ; H )"
 
 Definition wf_subst θ := forall v, θ v = ν <-> v = ν.
 
-Inductive wf_type : type_env -> reft_type -> Prop :=
-| wf_reft_t : forall Γ b p, wf_prop Γ p ->
+Inductive wf_type : type_env -> heap_env -> reft_type -> Prop :=
+| wf_reft_t : forall Γ Σ b p, wf_prop Γ Σ p ->
 (* ------------------------------------------------------------------- *)
-  wf_type Γ { ν : b | p }
+  wf_type Γ Σ { ν : b | p }
 
 with
-wf_prop : type_env -> reft_prop -> Prop :=
-| wf_tt : forall Γ, 
+wf_prop : type_env -> heap_env -> reft_prop -> Prop :=
+| wf_tt : forall Γ Σ, 
 (* ------------------------------------------------------------------- *)
-            wf_prop Γ tt_r 
+            wf_prop Γ Σ tt_r 
 
-| wf_rel : forall Γ e1 o e2, wf_expr Γ e1 -> wf_expr Γ e2 ->
+| wf_rel : forall Γ Σ e1 o e2, wf_expr Γ Σ e1 -> wf_expr Γ Σ e2 ->
 (* ------------------------------------------------------------------- *)
-  wf_prop Γ (rel_r e1 o e2)
+  wf_prop Γ Σ (rel_r e1 o e2)
 
-| wf_not : forall Γ p, wf_prop Γ p -> 
+| wf_not : forall Γ Σ p, wf_prop Γ Σ p -> 
 (* ------------------------------------------------------------------- *)
-  wf_prop Γ (not_r p)
+  wf_prop Γ Σ (not_r p)
 
-| wf_and : forall Γ p1 p2, wf_prop Γ p1 -> wf_prop Γ p2 -> 
+| wf_and : forall Γ Σ p1 p2, wf_prop Γ Σ p1 -> wf_prop Γ Σ p2 -> 
 (* ------------------------------------------------------------------- *)
-  wf_prop Γ (and_r p1 p2)
+  wf_prop Γ Σ (and_r p1 p2)
 
-| wf_or : forall Γ p1 p2, wf_prop Γ p1 -> wf_prop Γ p2 -> 
+| wf_or : forall Γ Σ p1 p2, wf_prop Γ Σ p1 -> wf_prop Γ Σ p2 -> 
 (* ------------------------------------------------------------------- *)
-  wf_prop Γ (or_r p1 p2)
+  wf_prop Γ Σ (or_r p1 p2)
 
 with 
-wf_expr : type_env -> expr -> Prop :=
-| wf_val : forall Γ v,
+wf_expr : type_env -> heap_env -> expr -> Prop :=
+| wf_val : forall Γ Σ v,
 (* ------------------------------------------------------------------- *)
-  wf_expr Γ (value_e v)
+  wf_expr Γ Σ (value_e v)
 
-| wf_var : forall Γ v t, (v,t) ∈ Γ ->
+| wf_var_ctx : forall Γ Σ v, var_in v Γ ->
 (* ------------------------------------------------------------------- *)
-  wf_expr Γ (var_e v)
+  wf_expr Γ Σ (var_e v)
 
-| wf_vv : forall Γ,
+| wf_var_hp : forall Γ Σ v, bind_in v Σ ->
 (* ------------------------------------------------------------------- *)
-  wf_expr Γ (var_e ν)
+  wf_expr Γ Σ (var_e v)
 
-| wf_op : forall Γ f e1 e2,
-            wf_expr Γ e1 -> wf_expr Γ e2 ->
+| wf_vv : forall Γ Σ,
 (* ------------------------------------------------------------------- *)
-  wf_expr Γ (fun_e f e1 e2).
+  wf_expr Γ Σ (var_e ν)
+
+| wf_op : forall Γ Σ f e1 e2,
+            wf_expr Γ Σ e1 -> wf_expr Γ Σ e2 ->
+(* ------------------------------------------------------------------- *)
+  wf_expr Γ Σ (fun_e f e1 e2).
+
+
+
+Definition fresh x Γ Σ :=
+  x <> ν /\ var_not_in x Γ /\ bind_not_in x Σ.
+
+Definition fresh_loc l Γ Σ :=
+  match l with
+    | L n =>
+      (V n) <> ν /\ fresh (V n) Γ Σ /\ loc_not_in l Σ
+  end.
             
-Inductive wf_env : type_env -> Prop :=
-  | wf_env_nil :
+Inductive wf_env : heap_env -> type_env -> Prop :=
+  | wf_env_nil : forall Σ,
 (* ------------------------------------------------------------------- *)
-    wf_env nil
+    wf_env Σ nil
+
   | wf_env_var : 
-      forall Γ x T, 
-        wf_env Γ -> (x <> ν) -> var_not_in x Γ -> wf_type ((x,T) :: Γ) T ->
+      forall Γ Σ x T, 
+        fresh x Γ Σ -> wf_env Σ Γ -> 
+        wf_type ((x,T) :: Γ) Σ T ->
 (* ------------------------------------------------------------------- *)
-    wf_env ((x, T) :: Γ).
+    wf_env Σ ((x, T) :: Γ).
 
-Inductive wf_heap : type_env -> heap_env -> Prop :=
+Inductive wf_heap : type_env -> heap_env -> heap_env -> Prop :=
   | wf_emp : 
-      forall Γ,
+      forall Γ Σ,
 (* ------------------------------------------------------------------- *)
-    wf_heap Γ nil
+    wf_heap Γ Σ nil
+
   | wf_heap_bind :
-      forall Γ Σ l x t,
-        loc_not_in l Σ -> bind_not_in x Σ -> 
-        var_not_in x Γ -> x <> ν -> wf_type Γ t ->
+      forall Γ Σ Σ0 l x t,
+        fresh x Γ Σ0 -> fresh_loc (L l) Γ Σ0 -> V l <> x ->
+        wf_type Γ Σ t -> wf_heap Γ Σ Σ0 ->
 (* ------------------------------------------------------------------- *)
-    wf_heap Γ ((l, (x, t)) :: Σ).
+    wf_heap Γ Σ ((L l, (x, t)) :: Σ0).
 
-Definition wf_guard (Γ : type_env) (ξ : guard) :=
-  wf_prop Γ ξ /\ ~(ν ∈ fv_prop ξ).
+Definition wf_guard (Γ : type_env) (Σ : heap_env) (ξ : guard) :=
+  wf_prop Γ Σ ξ /\ ~(ν ∈ fv_prop ξ).
 
-Definition wf_guards (Γ : type_env) (Ξ : guards) :=
-  Forall (fun ξ => wf_guard Γ ξ) Ξ.
+Definition wf_guards (Γ : type_env) (Σ : heap_env) (Ξ : guards) :=
+  Forall (fun ξ => wf_guard Γ Σ ξ) Ξ.
 
 Inductive wf_schema : proc_schema -> Prop :=
 | wf_proc_schema : 
     forall S, 
       length (s_formals S) = length (s_formal_ts S) ->
-      wf_env (combine (s_formals S) (s_formal_ts S)) ->
+      wf_env (s_heap_in S) (combine (s_formals S) (s_formal_ts S))  ->
+      wf_heap (combine (s_formals S) (s_formal_ts S)) (s_heap_in S) (s_heap_in S) ->
       (* Forall (wf_type (ext_type_env Γ (proc_args S))) (proc_formal_ts S) -> *)
-      wf_env (s_ret S :: (combine (s_formals S) (s_formal_ts S))) ->
+      wf_env (s_heap_out S) (s_ret S :: (combine (s_formals S) (s_formal_ts S))) ->
+      wf_heap (s_ret S :: (combine (s_formals S) (s_formal_ts S))) 
+              (s_heap_out S) (s_heap_out S) ->
 (* ------------------------------------------------------------------- *)
   wf_schema S.
 
@@ -115,23 +136,23 @@ Definition heap_subtype Γ Ξ Σ Σ' :=
       (exists t t', (l, (x, t)) ∈ Σ  -> (l, (x, t')) ∈ Σ' ->
                     subtype Γ Ξ t t').
 
-Inductive expr_type : type_env -> guards -> expr -> reft_type -> Prop :=
-| t_const : forall Γ Ξ v,
+Inductive expr_type : type_env -> heap_env -> guards -> expr -> reft_type -> Prop :=
+| t_const : forall Γ Σ Ξ v,
 (* ------------------------------------------------------------------- *)
-  expr_type Γ Ξ (value_e v) { ν : (base_of_val v) | (var_e ν) .= (value_e v) }
+  expr_type Γ Σ Ξ (value_e v) { ν : (base_of_val v) | (var_e ν) .= (value_e v) }
             
-| t_var : forall Γ Ξ x τ φ, (x, { ν : τ | φ }) ∈ Γ ->
+| t_var : forall Γ Σ Ξ x τ φ, (x, { ν : τ | φ }) ∈ Γ ->
 (* ------------------------------------------------------------------- *)
-  expr_type Γ Ξ (var_e x) { ν : τ | φ }
+  expr_type Γ Σ Ξ (var_e x) { ν : τ | φ }
 
-| t_sub : forall Γ Ξ e T T',
-            expr_type Γ Ξ e T -> wf_type Γ T' -> subtype Γ Ξ T T' -> 
+| t_sub : forall Γ Σ Ξ e T T',
+            expr_type Γ Σ Ξ e T -> wf_type Γ Σ T' -> subtype Γ Ξ T T' -> 
 (* ------------------------------------------------------------------- *)
-  expr_type Γ Ξ e T'.
+  expr_type Γ Σ Ξ e T'.
 
-Definition tc_list Γ Ξ (xts : list (var * reft_type)) :=
+Definition tc_list Γ Σ Ξ (xts : list (var * reft_type)) :=
   Forall (fun xt => 
-            expr_type Γ Ξ (var_e (fst xt)) (snd xt)) xts.
+            expr_type Γ Σ Ξ (var_e (fst xt)) (snd xt)) xts.
 
 Definition join_var Ξ Γ1 Γ2 xt :=
   match xt with
@@ -140,8 +161,8 @@ Definition join_var Ξ Γ1 Γ2 xt :=
     /\ (exists t2, ((x,t2) ∈ Γ2 /\ subtype Γ2 Ξ t2 t))
   end.
 
-Definition join_env Ξ Γ1 Γ2 Γ :=
-  wf_env Γ 
+Definition join_env Ξ Σ Γ1 Γ2 Γ :=
+  wf_env Σ Γ
   /\ (forall x, (var_in x Γ1 /\ var_in x Γ2) <-> var_in x Γ)
   /\ Forall (fun xt => (* wf_type Γ (snd xt)  *)
                        (* /\  *)join_var Ξ Γ1 Γ2 xt) Γ.
@@ -157,7 +178,7 @@ Definition heap_subst (Σ Σ': heap_env) (θ : subst_t var var) :=
   /\ (forall l xt xt', (l, xt) ∈ Σ -> (l, xt') ∈ Σ' -> θ (fst xt) = fst xt').
 
 Definition join_heap Γ1 Γ2 Γ Ξ Σ1 Σ2 Σ :=
-    wf_heap Γ Σ 
+    wf_heap Γ Σ Σ 
     /\ fresh_heap_binds Σ Γ  
     /\ fresh_heap_binds Σ Γ1 
     /\ fresh_heap_binds Σ Γ2 
@@ -167,15 +188,6 @@ Definition join_heap Γ1 Γ2 Γ Ξ Σ1 Σ2 Σ :=
     /\ (exists θ2, heap_subst Σ2 Σ θ2)
     /\ heap_subtype Γ1 Ξ Σ1 Σ 
     /\ heap_subtype Γ2 Ξ Σ2 Σ.
-
-Definition fresh x Γ Σ :=
-  x <> ν /\ var_not_in x Γ /\ bind_not_in x Σ.
-
-Definition fresh_loc l Γ Σ :=
-  match l with
-    | L n =>
-      (V n) <> ν /\ fresh (V n) Γ Σ /\ bind_not_in (V n) Σ /\ loc_not_in l Σ
-  end.
 
 Definition isub {A D R : Type} {S : Subst A D R } {SL : Subst A loc loc} 
                 (θ : subst_t D R) (θl : subst_t loc loc) (t : A) 
@@ -199,10 +211,11 @@ Inductive stmt_type : proc_env ->
       (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ -> heap_split Σu Σm Σ ->
       (forall x, θ x = (subst θ (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
       (forall x', ~(In x' (fst (s_ret S) :: s_formals S)) -> θ x' = x') ->
-      wf_env (isub θ θl (s_ret S) :: Γ) ->
-      wf_heap (isub θ θl (s_ret S) :: Γ) (Σu ++ isub θ θl (s_heap_out S)) ->
-      Forall (fun t => wf_type Γ t) (isub θ θl (s_formal_ts S)) ->
-      tc_list Γ Ξ (combine (subst θ (s_formals S)) (isub θ θl (s_formal_ts S))) ->
+      wf_env (Σu ++ isub θ θl (s_heap_out S)) (isub θ θl (s_ret S) :: Γ) ->
+      wf_heap (isub θ θl (s_ret S) :: Γ) (Σu ++ isub θ θl (s_heap_out S))
+                                         (Σu ++ isub θ θl (s_heap_out S)) ->
+      Forall (fun t => wf_type Γ Σ t) (isub θ θl (s_formal_ts S)) ->
+      tc_list Γ Σ Ξ (combine (subst θ (s_formals S)) (isub θ θl (s_formal_ts S))) ->
       heap_subtype Γ Ξ Σm (isub θ θl (s_heap_in S)) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)
@@ -211,29 +224,29 @@ Inductive stmt_type : proc_env ->
 
 | t_pad : 
     forall Φ Γ Σ Ξ l x a t,
-      fresh x Γ Σ -> fresh a Γ Σ -> fresh_loc l Γ Σ -> wf_type Γ t ->
+      fresh x Γ Σ -> fresh a Γ Σ -> fresh_loc l Γ Σ -> wf_type Γ Σ t ->
 (* ------------------------------------------------------------------- *)
       ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s a x ::: (Γ ; (l,(x,t))::Σ))
 
 | t_assign : 
     forall Φ Γ Σ Ξ v e τ φ, 
-      fresh v Γ Σ -> expr_type Γ Ξ e { ν : τ | φ } ->
+      fresh v Γ Σ -> expr_type Γ Σ Ξ e { ν : τ | φ } ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)  ⊢ assign_s v e ::: ((v, {ν : τ | (var_e ν) .= e})::Γ ; Σ))
 
 | t_alloc :
     forall Φ Γ Σ Ξ x y a l e t,
       fresh x Γ Σ -> fresh a Γ Σ -> x <> y -> 
-      expr_type Γ Ξ e t -> wf_heap Γ ((l, (y, t))::Σ) ->
+      expr_type Γ Σ Ξ e t -> wf_heap Γ ((l, (y, t))::Σ) ((l, (y, t))::Σ) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s a x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; ((l,(y,t))::Σ)))
 
 | t_if : 
     forall Φ Γ Γ1 Γ2 Γ' Σ Σ1 Σ2 Σ' Ξ e p s1 s2, 
-      expr_type Γ Ξ e { ν : int_t | p } ->
+      expr_type Γ Σ Ξ e { ν : int_t | p } ->
       ( Φ ; Γ ; Σ ; (e .= (int_v 1)) :: Ξ ) ⊢ s1 ::: (Γ1 ; Σ1) -> 
       ( Φ ; Γ ; Σ ; (e .= (int_v 0)) :: Ξ) ⊢ s2 ::: (Γ2 ; Σ2) ->
-      join_env Ξ Γ1 Γ2 Γ' -> 
+      join_env Ξ Σ' Γ1 Γ2 Γ' -> 
       join_heap Γ1 Γ2 Γ' Ξ Σ1 Σ2 Σ' -> 
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ) ⊢ if_s e s1 s2 ::: (Γ' ; Σ'))
@@ -264,7 +277,7 @@ Inductive prog_type : proc_env -> program -> Prop :=
     p_ret pr = fst (s_ret S) ->
     p_mod pr = [] ->
     ((p, (p_body pr, S))::Φ ; proc_init_env S ; [] ; [] ) ⊢ body ::: (Γ ; Σ) ->
-    expr_type Γ [] e (subst (subst_one (fst (s_ret S)) e) (snd (s_ret S))) ->
+    expr_type Γ [] [] e (subst (subst_one (fst (s_ret S)) e) (snd (s_ret S))) ->
     prog_type ((p,(p_body pr, S)) :: Φ) prog ->
 (* ------------------------------------------------------------------- *)
     prog_type Φ (procdecl_p p pr prog).

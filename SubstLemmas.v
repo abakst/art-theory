@@ -389,12 +389,9 @@ Proof.
   intros.
   unfold subst, Subst_var_expr in H1.
   unfold subst_pred.
-  rewrite sep_ty_split.
-  rewrite sep_ty_split.
-  (* f_equal. *)
+  repeat rewrite sep_ty_split.
   fold (subst_pred θ (sep_base x b) w).
   unfold sep_base, subst_pred.
-  destruct b.
   simpl.
   apply pred_ext.
   apply andp_derives.
@@ -405,7 +402,6 @@ Proof.
   apply andp_right.
   apply andp_left1.
   apply prop_left. intro.
-  simpl in H3.
   rewrite <- subst_expr_help2 in H3.
   rewrite H1 in H3.
   apply prop_right.
@@ -414,7 +410,7 @@ Proof.
   rewrite subst_vv_pred2 with (G := G) (θ := θ).
   apply derives_refl.
   assumption.
-  apply wf_type_prop with (ν := ν) (τ := int_t); assumption.
+  apply wf_type_prop with (ν := ν) (τ := b); assumption.
   assumption.
   apply derives_refl.
   apply andp_derives.
@@ -431,8 +427,8 @@ Proof.
   rewrite subst_vv_pred2 with (G := G) (θ := θ).
   apply derives_refl.
   assumption.
-  apply wf_type_prop with (ν := ν) (τ := int_t).
-    assumption. assumption.
+  apply wf_type_prop with (ν := ν) (τ := b); assumption.
+  assumption.
   apply derives_refl.
 Qed.
 
