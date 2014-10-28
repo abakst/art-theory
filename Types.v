@@ -16,44 +16,26 @@ Delimit Scope reft_scope with reft.
 Inductive base_type : Set :=
   | int_t  : base_type
   | null_t : base_type
-  | ref_t : loc -> base_type.
+  | ref_t  : var -> base_type.
 
 Definition base_of_type b :=
   match b with
-    | int_t => nat
-    | null_t => unit
-    | ref_t l => loc
+    | int_t   => nat
+    | null_t  => unit
+    | ref_t _ => loc
   end.
-
-Definition base_of_val (v: value) :=
-  match v with
-    | int_v  _ => int_t
-    | loc_v l => ref_t l
-    | null     => null_t
-  end.
-
-Definition val_of_base : forall (b : base_type), (base_of_type b) -> value :=
-  fun b => 
-    match b with
-      | int_t => fun x => int_v x
-      | ref_t l => fun _ => loc_v l
-      | null_t => fun _ => null
-    end.
-
-Inductive brel : Set :=
-  | eq_brel : brel.
 
 Inductive reft_prop : Set :=
-  | tt_r   : reft_prop
-  | rel_r  : expr -> brel -> expr -> reft_prop
-  | not_r  : reft_prop -> reft_prop
-  | and_r  : reft_prop -> reft_prop -> reft_prop
-  | or_r   : reft_prop -> reft_prop -> reft_prop.
+  | tt_r  : reft_prop
+  | eq_r  : expr -> expr -> reft_prop
+  | not_r : reft_prop -> reft_prop
+  | and_r : reft_prop -> reft_prop -> reft_prop
+  | or_r  : reft_prop -> reft_prop -> reft_prop.
 
 Fixpoint fv_prop φ :=
   match φ with 
     | tt_r => []
-    | rel_r e1 _ e2 => fv_expr e1 ++ fv_expr e2
+    | eq_r e1 e2 => fv_expr e1 ++ fv_expr e2
     | not_r φ => fv_prop φ
     | and_r φ1 φ2 => fv_prop φ1 ++ fv_prop φ2
     | or_r φ1 φ2 => fv_prop φ1 ++ fv_prop φ2
@@ -65,39 +47,36 @@ Record reft_type : Set :=
 
 Fixpoint subst_prop_var (s : subst_t var var) prop :=
   match prop with
-    | tt_r          => tt_r
-    | rel_r e1 o e2 => rel_r (subst s e1) o (subst s e2)
-    | not_r p       => not_r (subst_prop_var s p)
-    | and_r p1 p2   => and_r (subst_prop_var s p1) (subst_prop_var s p2)
-    | or_r p1 p2    => or_r (subst_prop_var s p1) (subst_prop_var s p2)
+    | tt_r        => tt_r
+    | eq_r e1 e2  => eq_r (subst s e1) (subst s e2)
+    | not_r p     => not_r (subst_prop_var s p)
+    | and_r p1 p2 => and_r (subst_prop_var s p1) (subst_prop_var s p2)
+    | or_r p1 p2  => or_r (subst_prop_var s p1) (subst_prop_var s p2)
   end.
 
 Fixpoint subst_prop (s : subst_t var expr) prop :=
   match prop with
-    | tt_r          => tt_r
-    | rel_r e1 o e2 => rel_r (subst s e1) o (subst s e2)
-    | not_r p       => not_r (subst_prop s p)
-    | and_r p1 p2   => and_r (subst_prop s p1) (subst_prop s p2)
-    | or_r p1 p2    => or_r (subst_prop s p1) (subst_prop s p2)
+    | tt_r        => tt_r
+    | eq_r e1 e2  => eq_r (subst s e1) (subst s e2)
+    | not_r p     => not_r (subst_prop s p)
+    | and_r p1 p2 => and_r (subst_prop s p1) (subst_prop s p2)
+    | or_r p1 p2  => or_r (subst_prop s p1) (subst_prop s p2)
   end.
 
 Instance Subst_prop_var : Subst reft_prop var var := subst_prop_var.
 Instance Subst_prop : Subst reft_prop var expr := subst_prop.
 
-Definition subst_r_var (s : subst_t var var) reft :=
-  mkReft_type (reft_base reft)
-              (subst s (reft_r reft)).
-
-Definition subst_base_loc (s : subst_t loc loc) b :=
+Fixpoint subst_base (s : subst_t var var) b :=
   match b with
     | ref_t l => ref_t (s l)
-    | _ => b
+    | _        => b
   end.
 
-Instance Subst_base_loc : Subst base_type loc loc := subst_base_loc.
+Instance Subst_base_var : Subst base_type var var := subst_base.
 
-Definition subst_r_loc (s : subst_t loc loc) reft :=
-  mkReft_type (subst s (reft_base reft)) (reft_r reft).
+Definition subst_r_var (s : subst_t var var) reft :=
+  mkReft_type (subst s (reft_base reft))
+              (subst s (reft_r reft)).
 
 Definition subst_r s reft :=
   mkReft_type (reft_base reft)
@@ -105,13 +84,12 @@ Definition subst_r s reft :=
 
 Instance Subst_reft_var : Subst reft_type var var := subst_r_var.
 Instance Subst_reft : Subst reft_type var expr := subst_r.
-Instance subst_reft_loc : Subst reft_type loc loc := subst_r_loc.
 
 Definition type_binding : Set := (var * reft_type)%type.
 
 Definition dummyt (v : var) t p := mkReft_type t p.
 
-Notation "x .= y" := (rel_r x eq_brel y) (at level 70).
+Notation "x .= y" := (eq_r x y) (at level 70).
 (* Notation "{ vv : t | P }" := (mkReft_type t P%reft) (at level 0, no associativity). *)
 Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, no associativity).
 
@@ -119,21 +97,15 @@ Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, n
 (** Environments **)
 Definition bind_env (B T : Set) : Set := list (B * T)%type.
 Definition type_env : Set := bind_env var reft_type.
-Definition heap_env : Set := list (loc * type_binding)%type.
+Definition heap_env : Set := list (var * type_binding)%type.
 
 Fixpoint subst_heap_var s (h : heap_env) : heap_env :=
   match h with
     | nil => nil
-    | (l, xt) :: h' => (l, subst s xt) :: subst_heap_var s h'
+    | (l, xt) :: h' => (subst s l, subst s xt) :: subst_heap_var s h'
   end.
 
 Instance Subst_heap_var : Subst heap_env var var := subst_heap_var.
-
-Fixpoint subst_heap_loc s (h : heap_env) : heap_env :=
-  match h with
-    | nil => nil
-    | (l, (x, t)) :: h' => (subst s l, (x, subst s t)) :: subst_heap_loc s h'
-  end.
 
 (** Procedures **)
 Record proc_schema : Set :=
@@ -151,18 +123,7 @@ Definition subst_schema (s : var -> var) S :=
       mkSchema (subst s xs) (subst s ts) (subst_heap_var s hi) (subst_heap_var s ho) (subst_both s xt)
   end.
 
-Definition subst_schema_loc (s : loc -> loc) S :=
-  match S with
-    | mkSchema xs ts hi ho (x, t) =>
-      mkSchema xs (subst s ts) (subst_heap_loc s hi) 
-               (subst_heap_loc s ho) (x, subst s t)
-  end.
-
 Instance Subst_proc_schema : Subst proc_schema var var := subst_schema.
-Instance Subst_proc_schema_loc : Subst proc_schema loc loc := subst_schema_loc.
-
-Instance Subst_binding_loc : Subst type_binding loc loc := 
-  fun s xt => (fst xt, subst s (snd xt)).
 
 Definition proc_env : Type := bind_env pname (stmt * proc_schema)%type.
 
@@ -178,10 +139,10 @@ Definition bind_in : var -> heap_env -> Prop :=
 Definition bind_not_in : var -> heap_env -> Prop :=
   fun x Σ => Forall (fun lxt => (fst (snd lxt)) <> x) Σ.
 
-Definition loc_in : loc -> heap_env -> Prop :=
+Definition loc_in : var -> heap_env -> Prop :=
   fun l Σ => exists b, In (l, b) Σ.
 
-Definition loc_not_in : loc -> heap_env -> Prop :=
+Definition loc_not_in : var -> heap_env -> Prop :=
   fun l Σ => Forall (fun lxt => (fst lxt <> l)) Σ.
 
 Definition fun_in : (pname * (stmt * proc_schema)) -> proc_env -> Prop :=
@@ -210,11 +171,6 @@ Definition guards := list reft_prop.
 Instance EqDec_base_t : EqDec base_type := _.
 Proof.
   hnf. decide equality; apply eq_dec.
-Qed.
-
-Instance EqDec_brel_t : EqDec brel := _.
-Proof.
-  hnf. decide equality.
 Qed.
 
 Instance EqDec_reft_prop : EqDec reft_prop := _.

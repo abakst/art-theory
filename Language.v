@@ -13,13 +13,13 @@ Import ListNotations.
 Delimit Scope lang_scope with lang.
 
 Inductive var   : Set := V : nat -> var.
-Inductive loc  : Set := L : nat -> loc.
+Inductive loc   : Set := L : nat -> loc.
 Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
   | int_v  : nat -> value
   | loc_v  : loc -> value
-  | null   : value.
+  | null_v : value.
 
 Inductive expr :=
   | value_e : value -> expr
@@ -32,6 +32,9 @@ Fixpoint fv_expr e :=
     | fun_e f e1 e2 => fv_expr e1 ++ fv_expr e2
     | _ => []
   end.
+
+Definition FV e x := In x (fv_expr e).
+  
 (* 
 Procedure p(x0 ... xn)
 - return value is stored in one of p_mod 

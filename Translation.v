@@ -13,15 +13,16 @@ Set Implicit Arguments.
 Open Scope logic.
 
 Definition sep_base (x:expr) (t:base_type) : assert :=
-  EX v : (base_of_type t), (fun s => !!(eval s x = (val_of_base t v))) && emp.
+  match t with 
+    | int_t   => (EX n : nat, eval_to x (int_v n))
+    | ref_t l => (fun s => !!(eval s x = eval s (var_e l))) 
+    | null    => eval_to x null_v
+  end && emp.
 
 Fixpoint sep_pred (p:reft_prop) : assert :=
   match p with
     | tt_r  => TT
-    | rel_r e1 o e2 =>
-      match o with
-        | eq_brel => (fun s => !!(eval s e1 = eval s e2))
-      end
+    | eq_r e1 e2 => fun s => !!(eval s e1 = eval s e2)
     | not_r p => (sep_pred p) --> FF
     | and_r p1 p2 => sep_pred p1 && sep_pred p2
     | or_r p1 p2 => sep_pred p1 || sep_pred p2
@@ -41,9 +42,9 @@ Fixpoint sep_env (Γ : type_env) : assert :=
 Fixpoint sep_heap (Σ : heap_env) : assert :=
   match Σ with
     | nil => emp
-    | (L n, (x, t))::Σ' =>
-      (eval_to (var_e (V n)) (int_v 0 )
-               || (emapsto (var_e (V n)) (var_e x)
+    | (l, (x, t))::Σ' =>
+      (eval_to (var_e l) null_v 
+               || (emapsto (var_e l) (var_e x)
                    * sep_ty (var_e x) t)) * sep_heap Σ'
   end.
 
@@ -77,7 +78,6 @@ Proof.
   intros.
   unfold pure.
   unfold sep_base.
-  rewrite <- exp_andp1.
   apply andp_left2.
   apply derives_refl.
 Qed.
@@ -99,7 +99,7 @@ Proof.
   intros.
   unfold pure, sep_ty.
   destruct t.
-  repeat apply andp_left1.
+  do 2 apply andp_left1.
   apply sep_base_pure.
 Qed.
 
@@ -126,3 +126,20 @@ Proof.
   apply andp_left2.
   apply derives_refl.
 Qed.
+
+Lemma subst_pure :
+  forall s (P : assert),
+    pure P -> pure (subst_pred s P).
+Proof.
+  firstorder.
+Qed.
+    
+
+Hint Resolve sep_pred_pure sep_ty_pure sep_env_pure sep_guard_pure subst_pure : pure.
+
+Ltac purity := 
+  match goal with
+    | |- context[emp] => eauto with pure
+    | _: _ && _ |- context[emp] =>
+      (apply andp_left1; purity || apply andp_left2; purity)
+  end.
