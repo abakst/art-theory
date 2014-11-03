@@ -15,8 +15,9 @@ Open Scope logic.
 Definition sep_base (x:expr) (t:base_type) : assert :=
   match t with 
     | int_t   => (EX n : nat, eval_to x (int_v n))
-    | ref_t l => (fun s => !!(eval s x = eval s (var_e l))) 
-    | null    => eval_to x null_v
+    | ref_t l => (fun s => !!(eval s x = addr_v (runloc l))
+                        && !!(eval s x <> null_v))
+    | null_t  => (fun s => !!(eval s x = null_v))
   end && emp.
 
 Fixpoint sep_pred (p:reft_prop) : assert :=
@@ -39,13 +40,16 @@ Fixpoint sep_env (Γ : type_env) : assert :=
     | (x,t) :: Γ' => sep_ty (var_e x) t && sep_env Γ'
   end && emp.
 
+Definition sep_heap_bind l x t :=
+  !!(runloc l = null) 
+    || (emapsto (addr_v (runloc l)) (var_e x)
+        * sep_ty (var_e x) t).
+
 Fixpoint sep_heap (Σ : heap_env) : assert :=
   match Σ with
     | nil => emp
     | (l, (x, t))::Σ' =>
-      (eval_to (var_e l) null_v 
-               || (emapsto (var_e l) (var_e x)
-                   * sep_ty (var_e x) t)) * sep_heap Σ'
+      sep_heap_bind l x t * sep_heap Σ'
   end.
 
 Fixpoint sep_guards (Δ : guards) : assert :=
@@ -143,3 +147,131 @@ Ltac purity :=
     | _: _ && _ |- context[emp] =>
       (apply andp_left1; purity || apply andp_left2; purity)
   end.
+
+Lemma sep_heap_app :
+  forall H1 H2,
+    sep_heap (H1 ++ H2) = sep_heap H1 * sep_heap H2.
+Proof.
+  induction H1 as [| (l, (x,t))].
+  + intros. 
+    simpl.
+    extensionality.
+    rewrite sepcon_comm.
+    rewrite sepcon_emp.
+    reflexivity.
+  + intros. 
+    rewrite <- app_comm_cons.
+    unfold sep_heap. fold sep_heap.
+    rewrite IHlist.
+    rewrite sepcon_assoc.
+    reflexivity.
+Qed.
+
+Lemma sep_heap_decompose' :
+  forall H l x t, 
+    In (l, (x, t)) H -> 
+    exists H', (sep_heap H = sep_heap_bind l x t * sep_heap H'
+                /\ (forall l', l <> l' -> (loc_in l' H <-> loc_in l' H'))).
+Proof.
+  induction H as [ | [l' [x' t']]].
+  + intros. contradiction H. 
+  + intros. destruct H0. 
+    * inv H0.
+      unfold sep_heap at 1; fold sep_heap.
+      exists H. repeat split. 
+      intro.
+      unfold loc_in in *.
+      destruct H1. destruct H1. inv H1. congruence.
+      exists x0. assumption.
+      unfold loc_in.
+      intros [xt]. intro.
+      exists xt. eauto with datatypes.
+    * specialize (IHlist l x t H0). 
+      destruct IHlist as [ H'' ].
+      destruct H1 as [A B].
+      unfold sep_heap; fold sep_heap.
+      rewrite A.
+      rewrite <- sepcon_assoc.
+      exists ((l',(x',t'))::H'').
+      unfold sep_heap; fold sep_heap.
+      rewrite <- sepcon_assoc.
+      split.
+        { f_equal.
+          rewrite sepcon_comm.
+          reflexivity. }
+        { repeat split. 
+          intros.
+          unfold loc_in in *.
+          destruct H2. destruct H2. inv H2. exists (x', t'). left. reflexivity.
+          specialize (B l'0 H1). destruct B. 
+          destruct H3. exists x0. assumption.
+          exists x1. right. assumption.
+          
+          intro.
+          unfold loc_in in *.
+          destruct H2. destruct H2. inv H2. exists (x', t'). left. reflexivity.
+          specialize (B l'0 H1). destruct B.
+          destruct H4. exists x0. assumption.
+          exists x1. right. assumption. }
+Qed.
+
+Lemma sep_heap_split :
+  forall H H1 H2,
+    heap_split H1 H2 H ->
+    sep_heap H = sep_heap H1 * sep_heap H2.
+Proof.
+  intros H.
+  induction H as [ | (l,xt)]; intros.
+  + assert (H1 = []) by (eapply heap_split_emp1; eauto).
+    assert (H2 = []) by (eapply heap_split_emp2; eauto).
+    subst H1. subst H2.
+    simpl. rewrite sepcon_emp. reflexivity.
+  + assert ((l, xt) :: H = [(l, xt)] ++ H) by reflexivity.
+    rewrite H3.
+    rewrite sep_heap_app.
+    destruct xt as [x t].
+    unfold sep_heap at 1.
+    rewrite sepcon_emp.
+
+    unfold heap_split in H0; decompose [and] H0.
+    destruct (H9 l (x,t)). left. reflexivity. {
+      destruct (sep_heap_decompose' H1 l x t) as [H1'].
+      apply H8.
+      specialize (IHlist H1' H2).
+      rewrite IHlist.
+      destruct H10.
+      rewrite H10.
+      rewrite sepcon_assoc.
+      reflexivity.
+
+      unfold heap_split.
+      repeat split.
+      inv H4. assumption.
+
+    unfold heap_split in H0.
+    destruct H0.
+    specialize (H4 l xt).
+    destruct H4. left. reflexivity.
+    pose (sep_heap_decompose' H1 l x t) as H1_decomp.
+    destruct H1_decomp as [H1']. apply H4. 
+    specialize (IHlist H1' H2).
+    destruct H5.
+    rewrite IHlist.
+    rewrite H5.
+    unfold sep_heap; fold sep_heap.
+    rewrite sepcon_emp. rewrite sepcon_assoc. reflexivity.
+    
+    unfold heap_split. split. {
+      intros l0.
+      repeat rewrite <- loc_in_not_in in *.
+      intro l0_not_in.
+      split. intro.
+      specialize (H6 l0).
+      specialize (H0 l0).
+      repeat rewrite <- loc_in_not_in in H0.
+      destruct H0.
+      intro.
+      intros l0. unfold loc_not_in in *. intros A.
+      split. {
+        
+  

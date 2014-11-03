@@ -13,13 +13,15 @@ Import ListNotations.
 Delimit Scope lang_scope with lang.
 
 Inductive var   : Set := V : nat -> var.
-Inductive loc   : Set := L : nat -> loc.
+Inductive addr  : Set := A : nat -> addr.
 Inductive pname : Set := P : nat -> pname.
 
 Inductive value : Set :=
   | int_v  : nat -> value
-  | loc_v  : loc -> value
-  | null_v : value.
+  | addr_v : addr -> value.
+
+Definition null   := A 0.
+Definition null_v := addr_v null.
 
 Inductive expr :=
   | value_e : value -> expr
@@ -73,7 +75,7 @@ Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
 
-Instance EqDec_loc : EqDec loc := _.
+Instance EqDec_addr : EqDec addr := _.
 Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
@@ -103,15 +105,10 @@ Qed.
 
 (*** Substitutions ***)
 Definition subst_var (s:subst_t var var) (v:var) := s v.
-Definition subst_loc (s:subst_t loc loc) (l:loc) := s l.
 Instance Subst_var_var : Subst var var var := subst_var.
-Instance Subst_loc_loc : Subst loc loc loc := subst_loc.
 
 Definition subst_var_one (v : var) (v' : var) : subst_t var var  :=
   fun i => if eq_dec i v then v' else i.
-
-Definition subst_loc_one (l : loc) (l' : loc) : subst_t loc loc  :=
-  fun i => if eq_dec i l then l' else i.
 
 Fixpoint subst_expr_var (s:subst_t var var) (e:expr) := 
   match e with 
@@ -139,7 +136,7 @@ Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
 Instance Subst_stmt : Subst stmt var var := subst_stmt.
 
 Definition state := var -> value.
-Definition heap  := nat -> option value.
+Definition heap  := addr -> option value.
 Definition world := (state * heap)%type.
 Definition stk (w : world) : state := fst w.
 Definition hp (w : world) : heap := snd w.

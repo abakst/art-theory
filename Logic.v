@@ -35,69 +35,9 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
   Parameter Rm: RecIndir mpred.  Existing Instance Rm.
   Parameter SIm: SepIndir mpred.  Existing Instance SIm.
   Parameter SRm: SepRec mpred.  Existing Instance SRm.
-  Parameter mapsto: forall (a: loc)(v: value), mpred.
+  Parameter mapsto: forall (a: addr)(v: value), mpred.
                          
-  (* Definition assert := w -> mpred. *)
-  Inductive assert : world -> Prop := 
-  | tt_a  : assert
-  | eq_a  : expr -> expr -> assert
-  | not_a : assert -> assert
-  | and_a : assert -> assert -> assert.
-  
-  Fixpoint eval_assert a :=
-    match a with
-      | tt_a => fun w => True
-      | eq_a e1 e2 => fun w => eval w e1 = eval w e2
-      | not_a p => fun w => (eval_assert p w -> False)
-      | and_a p q => fun w => eval_assert p w /\ eval_assert q w
-      (* | or_a p q => eval_assert w p \/ eval_assert w q *)
-      (* | imp_a p q => eval_assert w p -> eval_assert w q *)
-      (* | ex_a p   => exists e, eval_assert w (p e) *)
-      (* | all_a p   => forall e, eval_assert w (p e) *)
-    end.
-  
-  Definition pred : assert -> (world -> Prop) := fun a => eval_assert a.
-  
-  Definition derives_pred (p q : pred) : Prop :=
-    forall w , pred p w -> pred q w.
-  
-  Lemma derives_trans : 
-    forall p q r, derives_pred p q -> derives_pred q r -> derives_pred p r.
-  Proof.
-    firstorder.
-  Qed.
-
-  Lemma derives_refl : 
-    forall p, derives_pred p p.
-  Proof.
-    firstorder.
-  Qed.
-  
-  Lemma pred_ext : forall p q,
-                       derives_pred p q -> derives_pred q p -> p = q.
-  Proof.
-    intros.
-    extensionality.
-    apply prop_ext.
-    firstorder.
-  Qed.
-
-
-  Parameter assert_ext: forall a b, derives_assert a b -> derives_assert b a -> a = b.
-  Axiom assert_refl : forall a, derives_assert a a.
-  
-  Instance Foo : NatDed assert.  
-  Proof.
-    eapply (mkNatDed assert and_a or_a 
-                     ex_a all_a
-                     imp_a
-                     prop_a
-                     derives_assert
-                     assert_ext
-                     assert_refl
-           ).
-    intros.
-    
+  Definition assert := world -> mpred.
 
   Definition pure{A : Type} {N : NatDed A } {S : SepLog A} (P : A) := P |-- emp.
   Axiom sepcon_pure_andp : forall {A : Type} {N : NatDed A} {S : SepLog A} (P Q : A), pure P -> pure Q -> ((P * Q) = (P && Q)).
@@ -106,9 +46,9 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
     fun (w : world) => !!(eval w e = v) && emp.
   
   Definition emapsto (e1 e2: expr) :=
-    EX a : loc,  
+    EX a : addr,  
       EX v : value, 
-             eval_to e1 (loc_v a) && eval_to e2 v && (fun _ => mapsto a v).
+             eval_to e1 (addr_v a) && eval_to e2 v && (fun _ => mapsto a v).
 
   Definition subst_pred sub (P: assert) : (assert) := 
     fun w =>

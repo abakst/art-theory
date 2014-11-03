@@ -9,6 +9,21 @@ Require Import ListSet.
 Import ListNotations.
 
 Definition vv : var := V 0.
+Inductive loc := L : nat -> loc.
+
+Definition subst_loc (s:subst_t loc loc) (l:loc) := s l.
+Instance Subst_loc_loc : Subst loc loc loc := subst_loc.
+Instance EqDec_loc : EqDec loc := _. 
+Proof. hnf. decide equality. apply eq_dec. Qed.
+
+(** Assume a mapping from locations to runtime addresses **)
+Parameter runloc : loc -> addr.
+
+Parameter runloc_inj : 
+  forall l1 l2, runloc l1 <> null -> (runloc l1 <> runloc l2).
+
+Definition subst_loc_one (l : loc) (l' : loc) : subst_t loc loc  :=
+  fun i => if eq_dec i l then l' else i.
 
 Delimit Scope reft_scope with reft.
 
@@ -16,13 +31,13 @@ Delimit Scope reft_scope with reft.
 Inductive base_type : Set :=
   | int_t  : base_type
   | null_t : base_type
-  | ref_t  : var -> base_type.
+  | ref_t  : loc -> base_type.
 
 Definition base_of_type b :=
   match b with
     | int_t   => nat
     | null_t  => unit
-    | ref_t _ => loc
+    | ref_t _ => addr
   end.
 
 Inductive reft_prop : Set :=
@@ -66,24 +81,26 @@ Fixpoint subst_prop (s : subst_t var expr) prop :=
 Instance Subst_prop_var : Subst reft_prop var var := subst_prop_var.
 Instance Subst_prop : Subst reft_prop var expr := subst_prop.
 
-Fixpoint subst_base (s : subst_t var var) b :=
+Definition subst_r_var (s : subst_t var var) reft :=
+  mkReft_type (reft_base reft) (subst s (reft_r reft)).
+
+Definition subst_base_loc (s : subst_t loc loc) b :=
   match b with
     | ref_t l => ref_t (s l)
-    | _        => b
+    | _ => b
   end.
 
-Instance Subst_base_var : Subst base_type var var := subst_base.
+Instance Subst_base_loc : Subst base_type loc loc := subst_base_loc.
 
-Definition subst_r_var (s : subst_t var var) reft :=
-  mkReft_type (subst s (reft_base reft))
-              (subst s (reft_r reft)).
+Definition subst_r_loc (s : subst_t loc loc) reft :=
+  mkReft_type (subst s (reft_base reft)) (reft_r reft).
 
 Definition subst_r s reft :=
-  mkReft_type (reft_base reft)
-              (subst s (reft_r reft)).
+  mkReft_type (reft_base reft) (subst s (reft_r reft)).
 
 Instance Subst_reft_var : Subst reft_type var var := subst_r_var.
 Instance Subst_reft : Subst reft_type var expr := subst_r.
+Instance subst_reft_loc : Subst reft_type loc loc := subst_r_loc.
 
 Definition type_binding : Set := (var * reft_type)%type.
 
@@ -97,15 +114,21 @@ Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, n
 (** Environments **)
 Definition bind_env (B T : Set) : Set := list (B * T)%type.
 Definition type_env : Set := bind_env var reft_type.
-Definition heap_env : Set := list (var * type_binding)%type.
+Definition heap_env : Set := list (loc * type_binding)%type.
 
 Fixpoint subst_heap_var s (h : heap_env) : heap_env :=
   match h with
     | nil => nil
-    | (l, xt) :: h' => (subst s l, subst s xt) :: subst_heap_var s h'
+    | (l, xt) :: h' => (l, subst s xt) :: subst_heap_var s h'
   end.
 
 Instance Subst_heap_var : Subst heap_env var var := subst_heap_var.
+
+Fixpoint subst_heap_loc s (h : heap_env) : heap_env :=
+  match h with
+    | nil => nil
+    | (l, (x, t)) :: h' => (s l, (x, subst s t)) :: subst_heap_loc s h'
+  end.
 
 (** Procedures **)
 Record proc_schema : Set :=
@@ -123,7 +146,18 @@ Definition subst_schema (s : var -> var) S :=
       mkSchema (subst s xs) (subst s ts) (subst_heap_var s hi) (subst_heap_var s ho) (subst_both s xt)
   end.
 
+Definition subst_schema_loc (s : loc -> loc) S :=
+ match S with
+   | mkSchema xs ts hi ho (x, t) =>
+     mkSchema xs (subst s ts) (subst_heap_loc s hi)
+              (subst_heap_loc s ho) (x, subst s t)
+ end.              
+
 Instance Subst_proc_schema : Subst proc_schema var var := subst_schema.
+Instance Subst_proc_schema_loc : Subst proc_schema loc loc := subst_schema_loc.
+
+Instance Subst_binding_loc : Subst type_binding loc loc :=
+  fun s xt => (fst xt, subst s (snd xt)).
 
 Definition proc_env : Type := bind_env pname (stmt * proc_schema)%type.
 
@@ -139,11 +173,21 @@ Definition bind_in : var -> heap_env -> Prop :=
 Definition bind_not_in : var -> heap_env -> Prop :=
   fun x Σ => Forall (fun lxt => (fst (snd lxt)) <> x) Σ.
 
-Definition loc_in : var -> heap_env -> Prop :=
+Definition loc_in : loc -> heap_env -> Prop :=
   fun l Σ => exists b, In (l, b) Σ.
 
-Definition loc_not_in : var -> heap_env -> Prop :=
+Definition loc_not_in : loc -> heap_env -> Prop :=
   fun l Σ => Forall (fun lxt => (fst lxt <> l)) Σ.
+
+Definition ty_loc (T : reft_type) :=
+  let (b, _) := T in
+  match b with 
+    | ref_t l => [l]
+    | _        => []
+  end.
+
+Definition loc_not_in_ctx : loc -> type_env -> Prop :=
+  fun l Γ => Forall (fun xt => ~ In l (ty_loc (snd xt))) Γ.
 
 Definition fun_in : (pname * (stmt * proc_schema)) -> proc_env -> Prop :=
   fun ft Φ => In ft Φ.
@@ -151,13 +195,20 @@ Definition fun_in : (pname * (stmt * proc_schema)) -> proc_env -> Prop :=
 Definition fun_not_in : pname  -> proc_env -> Prop :=
   fun f Φ => Forall (fun ft => fst ft <> f) Φ.
 
-Definition heap_split Σ1 Σ2 Σ :=
-  forall l, 
-    (loc_in l Σ /\ 
-     ((loc_in l Σ1 /\ loc_not_in l Σ2) \/ (loc_in l Σ2 /\ loc_not_in l Σ1))
-     \/ (loc_not_in l Σ /\ loc_not_in l Σ1 /\ loc_not_in l Σ2)).
-
 Notation "X ∈ Y" := (In X Y) (at level 40).
+
+Inductive is_heap : heap_env -> Prop :=
+  | is_heap_emp  : 
+      is_heap nil
+  | is_heap_bind : 
+      forall l xt Σ, is_heap Σ -> loc_not_in l Σ -> is_heap ((l, xt) :: Σ).
+
+Definition heap_split Σ1 Σ2 Σ :=
+    is_heap Σ /\ is_heap Σ1 /\ is_heap Σ2
+    /\ (forall l, (loc_not_in l Σ -> ( loc_not_in l Σ1 /\ loc_not_in l Σ2)))
+    /\ (forall l xt, (l, (xt)) ∈ Σ ->  
+                        ((l, (xt)) ∈ Σ1 /\ loc_not_in l Σ2)
+                     \/ ((l, (xt)) ∈ Σ2 /\ loc_not_in l Σ1)).
 
 Definition ext_type_env (e1 e2: type_env) := e1 ++ e2.
 Definition ext_proc_env (e1 e2: proc_env) := e1 ++ e2.
@@ -267,10 +318,10 @@ Proof.
   intros.
   unfold heap_split in *.
   intros. 
-  destruct (H l); firstorder.
+  destruct H; firstorder.
 Qed.
 
-Lemma heap_split_emp :
+Lemma heap_split_loc_not_in :
   forall l Σ1 Σ2 Σ,
     heap_split Σ1 Σ2 Σ ->
     loc_not_in l Σ ->
@@ -278,26 +329,92 @@ Lemma heap_split_emp :
 Proof.
   intros.
   unfold heap_split in H.
-  specialize (H l).
-  rewrite <- loc_in_not_in in *.
-  destruct H.
-  destruct H.
-  congruence.
-  destruct H. destruct H1.
-  rewrite <- loc_in_not_in in *.
-  assumption.
+  firstorder.
 Qed.
 
-Lemma heap_split_emp' :
+Lemma heap_split_loc_not_in' :
   forall l Σ1 Σ2 Σ,
     heap_split Σ1 Σ2 Σ ->
     loc_not_in l Σ ->
     loc_not_in l Σ2.
 Proof.
   intros.
-  apply heap_split_comm in H.
-  eapply heap_split_emp;
-  eauto.
+  eauto using heap_split_loc_not_in, heap_split_comm.
 Qed.
 
-Hint Resolve heap_split_emp heap_split_emp' loc_in_not_in : heaps.
+Hint Resolve heap_split_loc_not_in heap_split_loc_not_in' loc_in_not_in : heaps.
+
+Lemma in_exists :
+  forall (H : heap_env),
+    H <> [] -> exists a, In a H.
+Proof.
+  intros.
+  induction H.
+  contradiction H0. reflexivity.
+  exists a. left. reflexivity.
+Qed.
+
+Lemma heap_split_emp1 :
+    forall H1 H2,
+      heap_split H1 H2 [] -> H1 = [].
+Proof.
+  unfold heap_split.
+  intros.
+  decompose [and] H.
+  assert ({H1 = []} + {H1 <> []}). decide equality. apply eq_dec.
+  destruct H6.
+  subst H1. reflexivity.
+  apply in_exists in n.
+  destruct n.
+  destruct (H5 (fst x)). unfold loc_not_in. eauto with datatypes.
+  exfalso.
+  rewrite <- loc_in_not_in in *.
+  apply H8.
+  unfold loc_in. exists (snd x). destruct x. simpl in *. assumption.
+Qed.
+
+Lemma heap_split_emp2 :
+    forall H1 H2,
+      heap_split H1 H2 [] -> H2 = [].
+Proof.
+  intros.
+  apply heap_split_comm in H.
+  apply heap_split_emp1 with (H2 := H1).
+  assumption.
+Qed.
+
+Lemma heap_split_emp :
+  forall H1 H2,
+    heap_split H1 H2 [] -> H1 = [] /\ H2 = [].
+Proof.
+  intros; split; eauto using heap_split_emp1, heap_split_comm.
+Qed.
+
+Lemma heap_split_is_heap :
+  forall H H1 H2, heap_split H1 H2 H -> is_heap H.
+Proof.
+  firstorder.
+Qed.
+
+Lemma heap_split_is_heap1 :
+  forall H H1 H2, heap_split H1 H2 H -> is_heap H1.
+Proof.
+  firstorder.
+Qed.
+
+Lemma heap_split_is_heap2 :
+  forall H H1 H2, heap_split H1 H2 H -> is_heap H2.
+Proof.
+  firstorder.
+Qed.
+
+Hint Resolve 
+     heap_split_emp1
+     heap_split_emp2
+     heap_split_emp
+     heap_split_is_heap
+     heap_split_is_heap1
+     heap_split_is_heap2 
+: heaps.
+
+    
