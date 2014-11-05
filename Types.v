@@ -5,7 +5,12 @@ Require Import msl.eq_dec.
 Require Import Subst.
 Require Export Language.
 Require Import List.
+Require Export Coq.Structures.Equalities.
 Require Import ListSet.
+Require Export Coq.FSets.FMaps.
+(* Require Import Coq.FSets.FMapList. *)
+(* Require Import Coq.FSets.FMapFacts. *)
+Require Import Coq.Structures.OrderedTypeEx.
 Import ListNotations.
 
 Definition vv : var := V 0.
@@ -112,26 +117,82 @@ Notation "{ vv : t | P }" := (dummyt vv t P%reft) (at level 0, vv at level 99, n
 
 
 (** Environments **)
-Definition bind_env (B T : Set) : Set := list (B * T)%type.
-Definition type_env : Set := bind_env var reft_type.
-Definition heap_env : Set := list (loc * type_binding)%type.
+(* Module Type Loc. *)
+(*   Definition t := loc. *)
+(*   Definition eq := eq_dec. *)
+(* End Loc. *)
 
-Fixpoint subst_heap_var s (h : heap_env) : heap_env :=
-  match h with
-    | nil => nil
-    | (l, xt) :: h' => (l, subst s xt) :: subst_heap_var s h'
-  end.
+Module Loc_as_OT <: UsualOrderedType.
+  Definition t := loc.
+  Definition eq := @eq loc.
+  Definition eq_refl := @eq_refl loc.
+  Definition eq_sym := @eq_sym loc.
+  Definition eq_trans := @eq_trans loc.
+  Definition lt l l' :=
+    match (l, l') with
+      | (L n, L n') => n < n'
+    end.
+  Definition eq_dec := eq_dec.
+  Lemma lt_trans : forall l1 l2 l3,
+                     lt l1 l2 -> lt l2 l3 -> lt l1 l3.
+  Proof.
+    intros.
+    unfold lt in *.
+    destruct l1. destruct l2. destruct l3.
+    pose (Nat_as_OT.lt_trans n n0 n1).
+    apply l. apply H. apply H0.
+  Qed.
+
+  Lemma lt_not_eq : forall l1 l2, lt l1 l2 -> ~ eq l1 l2.
+  Proof.
+    destruct l1 as [n1].
+    destruct l2 as [n2].
+    intros.
+    pose (Nat_as_OT.lt_not_eq n1 n2).
+    intuition.
+    apply H1.
+    injection H0.
+    intro. subst.
+    exfalso.
+    apply H1.
+    reflexivity.
+  Qed.
+  
+  Definition compare x y : Compare lt eq x y.
+  Proof.
+    destruct x. destruct y.
+    destruct (Nat_as_OT.compare n n0).
+    apply LT. apply l.
+    apply EQ. inversion e. subst. constructor.
+    apply GT. apply l.
+  Qed.
+End Loc_as_OT.
+
+Module UD_Loc <: OrderedType := UOT_to_OT(Loc_as_OT).
+Module Loc_as_DT <: DecidableType := Loc_as_OT.
+
+Module HE := FMapList.Make(UD_Loc).
+Module HE_Facts := WFacts_fun(Loc_as_DT)(HE).
+Module HE_Props := WProperties_fun(Loc_as_DT)(HE).
+
+Definition bind_env (B T : Type) : Type := list (B * T)%type.
+Definition type_env : Type := bind_env var reft_type.
+Definition heap_env : Type := HE.t type_binding.
+
+Definition subst_heap_var s (h : heap_env) : heap_env :=
+  HE.map (fun xt => subst s xt) h.
 
 Instance Subst_heap_var : Subst heap_env var var := subst_heap_var.
+Instance Subst_binding_loc : Subst type_binding loc loc :=
+  fun s xt => (fst xt, subst s (snd xt)).
 
-Fixpoint subst_heap_loc s (h : heap_env) : heap_env :=
-  match h with
-    | nil => nil
-    | (l, (x, t)) :: h' => (s l, (x, subst s t)) :: subst_heap_loc s h'
-  end.
+Definition subst_heap_loc (s : loc -> loc) (h : heap_env) : heap_env :=
+  HE.fold (fun k xt m => HE.add (s k) (subst s xt) m) h (HE.empty type_binding).
+
+Instance Subst_heap_loc : Subst heap_env loc loc := subst_heap_loc.
 
 (** Procedures **)
-Record proc_schema : Set :=
+Record proc_schema : Type :=
   mkSchema { s_formals: list var;
              s_formal_ts: list reft_type;
              s_heap_in: heap_env;
@@ -156,9 +217,6 @@ Definition subst_schema_loc (s : loc -> loc) S :=
 Instance Subst_proc_schema : Subst proc_schema var var := subst_schema.
 Instance Subst_proc_schema_loc : Subst proc_schema loc loc := subst_schema_loc.
 
-Instance Subst_binding_loc : Subst type_binding loc loc :=
-  fun s xt => (fst xt, subst s (snd xt)).
-
 Definition proc_env : Type := bind_env pname (stmt * proc_schema)%type.
 
 Definition var_in : var -> type_env -> Prop := 
@@ -168,16 +226,16 @@ Definition var_not_in : var -> type_env -> Prop :=
   fun x Γ => Forall (fun xt => (fst xt <> x)) Γ.
 
 Definition bind_in : var -> heap_env -> Prop :=
-  fun x Σ => exists l t, In (l, (x, t)) Σ.
+  fun x Σ => exists l t, HE.find l Σ = Some (x,t).
 
 Definition bind_not_in : var -> heap_env -> Prop :=
-  fun x Σ => Forall (fun lxt => (fst (snd lxt)) <> x) Σ.
+  fun x Σ => forall l t, (HE.find l Σ <> Some (x, t)).
 
 Definition loc_in : loc -> heap_env -> Prop :=
-  fun l Σ => exists b, In (l, b) Σ.
+  fun l Σ => HE.find l Σ <> None.
 
 Definition loc_not_in : loc -> heap_env -> Prop :=
-  fun l Σ => Forall (fun lxt => (fst lxt <> l)) Σ.
+  fun l Σ => HE.find l Σ = None.
 
 Definition ty_loc (T : reft_type) :=
   let (b, _) := T in
@@ -197,18 +255,17 @@ Definition fun_not_in : pname  -> proc_env -> Prop :=
 
 Notation "X ∈ Y" := (In X Y) (at level 40).
 
-Inductive is_heap : heap_env -> Prop :=
-  | is_heap_emp  : 
-      is_heap nil
-  | is_heap_bind : 
-      forall l xt Σ, is_heap Σ -> loc_not_in l Σ -> is_heap ((l, xt) :: Σ).
+Definition disjoint (Σ1 Σ2 : heap_env) :=
+     forall l, (HE.In l Σ1 -> ~ HE.In l Σ2)
+     /\ forall l, (HE.In l Σ2 -> ~ HE.In l Σ1).
 
 Definition heap_split Σ1 Σ2 Σ :=
-    is_heap Σ /\ is_heap Σ1 /\ is_heap Σ2
-    /\ (forall l, (loc_not_in l Σ -> ( loc_not_in l Σ1 /\ loc_not_in l Σ2)))
-    /\ (forall l xt, (l, (xt)) ∈ Σ ->  
-                        ((l, (xt)) ∈ Σ1 /\ loc_not_in l Σ2)
-                     \/ ((l, (xt)) ∈ Σ2 /\ loc_not_in l Σ1)).
+  @HE_Props.Partition type_binding Σ Σ1 Σ2.
+  (*    (forall l, ~HE.In l Σ -> ~HE.In l Σ1) *)
+  (* /\ (forall l, ~HE.In l Σ -> ~HE.In l Σ2) *)
+  (* /\ (forall l xt, HE.find l Σ = Some xt -> (HE.find l Σ1 = Some xt  *)
+  (*                                        \/  HE.find l Σ2 = Some xt)) *)
+  (* /\ disjoint Σ1 Σ2. *)
 
 Definition ext_type_env (e1 e2: type_env) := e1 ++ e2.
 Definition ext_proc_env (e1 e2: proc_env) := e1 ++ e2.
@@ -234,10 +291,10 @@ Proof.
   hnf. decide equality; try apply eq_dec.
 Qed.
 
-Instance EqDec_proc_schema : EqDec proc_schema := _.
-Proof.
-  hnf. decide equality; try apply eq_dec.
-Qed.
+(* Instance EqDec_proc_schema : EqDec proc_schema := _. *)
+(* Proof. *)
+(*   hnf. decide equality; try apply eq_dec. *)
+(* Qed. *)
 
 Definition ν := vv.
 
@@ -249,21 +306,9 @@ Theorem loc_in_dec :
 Proof.
   intros.
   unfold loc_in.
-  induction Σ.
-  right. intuition. destruct H. inversion H.
-  destruct IHΣ.
-  left. destruct e. exists x. right. assumption.
-  intuition.
-  cut ({l = a0} + {l <> a0}). intro.
-  destruct H. 
-    rewrite <- e in *.
-    left. exists b. left. reflexivity.
-    right. intro. apply n.
-    destruct H.
-    destruct H. inversion H. subst.
-    congruence.
-    exists x. assumption.
-  apply eq_dec.
+  destruct (HE.find l Σ).
+  left. discriminate.
+  right. intuition.
 Qed.
 
 Lemma loc_in_not_in :
@@ -273,42 +318,19 @@ Proof.
   intro Σ.
   unfold loc_not_in.
   unfold loc_in.
-  induction Σ.
-  intros.
-  rewrite Forall_forall.
-  constructor.
-  intros.
-  inversion H0.
-  intros.
-  intro. 
-  destruct H0.
-  inversion H0.
-  constructor.
-  intros.
-  destruct (IHΣ l).
-  rewrite Forall_forall in *.
-  intros.
-  destruct H2. subst.
-  intuition.
-  destruct x. subst. 
-  apply H.
-  exists t. left. reflexivity.
-  apply H0.
+  intro l.
+  destruct (HE.find l Σ) eqn: F.
+  split.
   intro.
-  apply H.
-  destruct H3.
-  exists x0. apply in_cons. assumption. assumption.
-  intros.
+  exfalso.
+  apply H. discriminate.
+  intro. intro. contradiction.
+  split.
+  intro. reflexivity.
   intro.
-  destruct (IHΣ l).
-  rewrite Forall_forall in *.
-  destruct H0.
-  destruct H0.
-  destruct a. inversion H0. subst.
-  specialize (H (l,x)). apply H. left. reflexivity. reflexivity.
-  apply H2. intros.
-  apply H. apply in_cons. assumption. exists x. assumption.
-Qed. (** OOF **)
+  intro.
+  contradiction.
+Qed.
 
 Lemma heap_split_comm :
   forall Σ1 Σ2 Σ,
@@ -317,9 +339,13 @@ Lemma heap_split_comm :
 Proof.
   intros.
   unfold heap_split in *.
-  intros. 
-  destruct H; firstorder.
+  apply HE_Props.Partition_sym.
+  assumption.
 Qed.
+
+Import HE.
+Import HE_Facts.
+Import HE_Props.
 
 Lemma heap_split_loc_not_in :
   forall l Σ1 Σ2 Σ,
@@ -328,8 +354,22 @@ Lemma heap_split_loc_not_in :
     loc_not_in l Σ1.
 Proof.
   intros.
-  unfold heap_split in H.
-  firstorder.
+  unfold loc_not_in in *.
+  unfold heap_split in *.
+  unfold Partition in *.
+  decompose [and] H.
+  specialize (H2 l).
+  apply not_find_in_iff in H0.
+  apply not_find_in_iff.
+  intro.
+  apply H0.
+  destruct H3.
+  specialize (H2 x).
+  destruct H2.
+  exists x.
+  apply H4.
+  left.
+  apply H3.
 Qed.
 
 Lemma heap_split_loc_not_in' :
@@ -344,77 +384,47 @@ Qed.
 
 Hint Resolve heap_split_loc_not_in heap_split_loc_not_in' loc_in_not_in : heaps.
 
-Lemma in_exists :
-  forall (H : heap_env),
-    H <> [] -> exists a, In a H.
-Proof.
-  intros.
-  induction H.
-  contradiction H0. reflexivity.
-  exists a. left. reflexivity.
-Qed.
+(* Lemma in_exists : *)
+(*   forall (H : heap_env), *)
+(*     H <> [] -> exists a, In a H. *)
+(* Proof. *)
+(*   intros. *)
+(*   induction H. *)
+(*   contradiction H0. reflexivity. *)
+(*   exists a. left. reflexivity. *)
+(* Qed. *)
 
 Lemma heap_split_emp1 :
-    forall H1 H2,
-      heap_split H1 H2 [] -> H1 = [].
+    forall H H1 H2,
+      HE.Empty H -> 
+      heap_split H1 H2 H -> HE.Empty H1.
 Proof.
   unfold heap_split.
   intros.
-  decompose [and] H.
-  assert ({H1 = []} + {H1 <> []}). decide equality. apply eq_dec.
-  destruct H6.
-  subst H1. reflexivity.
-  apply in_exists in n.
-  destruct n.
-  destruct (H5 (fst x)). unfold loc_not_in. eauto with datatypes.
-  exfalso.
-  rewrite <- loc_in_not_in in *.
-  apply H8.
-  unfold loc_in. exists (snd x). destruct x. simpl in *. assumption.
+  pose (@HE_Props.Partition_Empty _ H H1 H2 H3).
+  destruct i.
+  apply H4. assumption.
 Qed.
 
 Lemma heap_split_emp2 :
-    forall H1 H2,
-      heap_split H1 H2 [] -> H2 = [].
+    forall H H1 H2,
+      HE.Empty H -> 
+      heap_split H1 H2 H -> HE.Empty H2.
 Proof.
   intros.
-  apply heap_split_comm in H.
-  apply heap_split_emp1 with (H2 := H1).
-  assumption.
+  eauto using heap_split_comm, heap_split_emp1.
 Qed.
 
 Lemma heap_split_emp :
-  forall H1 H2,
-    heap_split H1 H2 [] -> H1 = [] /\ H2 = [].
+  forall H H1 H2,
+    HE.Empty H ->
+    heap_split H1 H2 H -> HE.Empty H1 /\ HE.Empty H2.
 Proof.
   intros; split; eauto using heap_split_emp1, heap_split_comm.
-Qed.
-
-Lemma heap_split_is_heap :
-  forall H H1 H2, heap_split H1 H2 H -> is_heap H.
-Proof.
-  firstorder.
-Qed.
-
-Lemma heap_split_is_heap1 :
-  forall H H1 H2, heap_split H1 H2 H -> is_heap H1.
-Proof.
-  firstorder.
-Qed.
-
-Lemma heap_split_is_heap2 :
-  forall H H1 H2, heap_split H1 H2 H -> is_heap H2.
-Proof.
-  firstorder.
 Qed.
 
 Hint Resolve 
      heap_split_emp1
      heap_split_emp2
      heap_split_emp
-     heap_split_is_heap
-     heap_split_is_heap1
-     heap_split_is_heap2 
 : heaps.
-
-    

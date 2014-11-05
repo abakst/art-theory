@@ -4,11 +4,12 @@ Require Import Coq.Unicode.Utf8.
 Require Import msl.eq_dec.
 Require Import Language.
 Require Import Types.
+Import HE.
 Require Import List.
 Import ListNotations.
 Require Import ListSet.
 Require Import Subst.
-Require Export Translation.
+Require Import Translation.
  
 Reserved Notation "( Φ ; Γ ; S ; Ξ ) ⊢ s ::: ( O ; H )" 
          (at level 0, no associativity).
@@ -67,7 +68,7 @@ Definition fresh x Γ Σ := x <> ν /\ var_not_in x Γ /\ bind_not_in x Σ.
 Definition fresh_loc l Γ Σ := loc_not_in l Σ /\ loc_not_in_ctx l Γ.
             
 Inductive wf_env : heap_env -> type_env -> Prop :=
-  | wf_env_nil : forall Σ,
+  | wf_env_nil : forall Σ, 
 (* ------------------------------------------------------------------- *)
     wf_env Σ nil
 
@@ -79,16 +80,16 @@ Inductive wf_env : heap_env -> type_env -> Prop :=
 
 Inductive wf_heap : type_env -> heap_env -> heap_env -> Prop :=
   | wf_emp : 
-      forall Γ Σ,
+      forall Γ Σ Σ', Empty Σ' ->
 (* ------------------------------------------------------------------- *)
-    wf_heap Γ Σ nil
+    wf_heap Γ Σ Σ'
 
   | wf_heap_bind :
       forall Γ Σ Σ0 l x t,
         fresh x Γ Σ0 -> fresh_loc l Γ Σ0 -> bind_in x Σ ->
         wf_type Γ Σ t -> wf_heap Γ Σ Σ0 ->
 (* ------------------------------------------------------------------- *)
-    wf_heap Γ Σ ((l, (x, t)) :: Σ0).
+    wf_heap Γ Σ (add l (x,t) Σ0).
 
 Definition wf_guard (Γ : type_env) (Σ : heap_env) (ξ : guard) :=
   wf_prop Γ Σ ξ /\ ~(ν ∈ fv_prop ξ).
@@ -122,7 +123,7 @@ Definition eq_dom Σ Σ' :=
 Definition heap_subtype Γ Ξ Σ Σ' :=
   eq_dom Σ Σ' /\
     forall l x, 
-      (exists t t', (l, (x, t)) ∈ Σ  -> (l, (x, t')) ∈ Σ' ->
+      (exists t t', MapsTo l (x, t) Σ  -> MapsTo l (x, t') Σ' ->
                     subtype Γ Ξ t t').
 
 Inductive expr_type : type_env -> heap_env -> guards -> expr -> reft_type -> Prop :=
@@ -161,14 +162,14 @@ Definition join_env Ξ Σ Γ1 Γ2 Γ :=
                        (* /\  *)join_var Ξ Γ1 Γ2 xt) Γ.
 
 Definition fresh_heap_binds (Σ : heap_env) (Γ : type_env)  :=
-  Forall (fun lxt => var_not_in (fst (snd lxt)) Γ) Σ.
+  forall l x t, MapsTo l (x,t) Σ -> var_not_in x Γ.
 
 Definition fresh_heap_binds' (Σ : heap_env) (Σ' : heap_env) :=
-  Forall (fun lxt => bind_not_in (fst (snd lxt)) Σ') Σ.
+  forall l x t, MapsTo l (x,t) Σ -> bind_not_in x Σ'.
 
 Definition heap_subst (Σ Σ': heap_env) (θ : subst_t var var) :=
   (forall x, bind_not_in x Σ -> θ x = x)
-  /\ (forall l xt xt', (l, xt) ∈ Σ -> (l, xt') ∈ Σ' -> θ (fst xt) = fst xt').
+  /\ (forall l xt xt', MapsTo l xt Σ -> MapsTo l xt' Σ' -> θ (fst xt) = fst xt').
 
 Definition join_heap Γ1 Γ2 Γ Ξ Σ1 Σ2 Σ :=
     wf_heap Γ Σ Σ 
@@ -200,26 +201,26 @@ Inductive stmt_type : proc_env ->
    (Φ ; Γ ; Σ ; Ξ) ⊢ skip_s ::: (Γ ; Σ)
 
 | t_proc_s :
-    forall Φ Γ Σ Σu Σm Ξ (v:var) f p S (θ : var -> var) (θl : loc -> loc),
-      (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ -> heap_split Σu Σm Σ ->
+    forall Φ Γ Σ Σ' Σu Σm Ξ (v:var) f p S (θ : var -> var) (θl : loc -> loc),
+      (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ -> 
+      heap_split Σu Σm Σ -> heap_split Σu (isub θ θl (s_heap_out S)) Σ' ->
       (forall x, θ x = (subst θ (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
       (forall x', ~(In x' (fst (s_ret S) :: s_formals S)) -> θ x' = x') ->
-      wf_env (Σu ++ isub θ θl (s_heap_out S)) (isub θ θl (s_ret S) :: Γ) ->
-      wf_heap (isub θ θl (s_ret S) :: Γ) (Σu ++ isub θ θl (s_heap_out S))
-                                         (Σu ++ isub θ θl (s_heap_out S)) ->
+      wf_env Σ' (isub θ θl (s_ret S) :: Γ) ->
+      wf_heap (isub θ θl (s_ret S) :: Γ) Σ' Σ' ->
       Forall (fun t => wf_type Γ Σ t) (isub θ θl (s_formal_ts S)) ->
       tc_list Γ Σ Ξ (combine (subst θ (s_formals S)) (isub θ θl (s_formal_ts S))) ->
       heap_subtype Γ Ξ Σm (isub θ θl (s_heap_in S)) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)
      ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] 
-       ::: (isub θ θl (s_ret S) :: Γ ; Σu ++ isub θ θl (s_heap_out S)))
+       ::: (isub θ θl (s_ret S) :: Γ ; Σ'))
 
 | t_pad : 
     forall Φ Γ Σ Ξ l x a t,
       fresh x Γ Σ -> fresh a Γ Σ -> fresh_loc l Γ Σ -> wf_type Γ Σ t ->
 (* ------------------------------------------------------------------- *)
-      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s a x ::: (Γ ; (l,(x,t))::Σ))
+      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s a x ::: (Γ ; add l (x,t) Σ))
 
 | t_assign : 
     forall Φ Γ Σ Ξ v e τ φ, 
@@ -230,9 +231,9 @@ Inductive stmt_type : proc_env ->
 | t_alloc :
     forall Φ Γ Σ Ξ x y a l e t,
       fresh x Γ Σ -> fresh a Γ Σ -> x <> y -> 
-      expr_type Γ Σ Ξ e t -> wf_heap Γ ((l, (y, t))::Σ) ((l, (y, t))::Σ) ->
+      expr_type Γ Σ Ξ e t -> wf_heap Γ (add l (y,t) Σ) (add l (y,t) Σ) ->
 (* ------------------------------------------------------------------- *)
-  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s a x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; ((l,(y,t))::Σ)))
+  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s a x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; (add l (y,t) Σ)))
 
 | t_if : 
     forall Φ Γ Γ1 Γ2 Γ' Σ Σ1 Σ2 Σ' Ξ e p s1 s2, 
@@ -259,7 +260,7 @@ Definition proc_init_env S := combine (s_formals S) (s_formal_ts S).
 Inductive prog_type : proc_env -> program -> Prop :=
 | t_prog_entry : 
     forall Φ Γ Σ s, 
-      (Φ ; [] ; [] ; []) ⊢ s ::: (Γ ; Σ) ->
+      (Φ ; [] ; empty type_binding ; []) ⊢ s ::: (Γ ; Σ) ->
       prog_type Φ (entry_p s)
 | t_prog_procdecl :
   forall Φ Γ Σ p pr body prog e S,
@@ -269,8 +270,8 @@ Inductive prog_type : proc_env -> program -> Prop :=
     p_body pr = seq_s body (return_s e) ->
     p_ret pr = fst (s_ret S) ->
     p_mod pr = [] ->
-    ((p, (p_body pr, S))::Φ ; proc_init_env S ; [] ; [] ) ⊢ body ::: (Γ ; Σ) ->
-    expr_type Γ [] [] e (subst (subst_one (fst (s_ret S)) e) (snd (s_ret S))) ->
+    ((p, (p_body pr, S))::Φ ; proc_init_env S ; empty type_binding ; [] ) ⊢ body ::: (Γ ; Σ) ->
+    expr_type Γ (empty type_binding) [] e (subst (subst_one (fst (s_ret S)) e) (snd (s_ret S))) ->
     prog_type ((p,(p_body pr, S)) :: Φ) prog ->
 (* ------------------------------------------------------------------- *)
     prog_type Φ (procdecl_p p pr prog).

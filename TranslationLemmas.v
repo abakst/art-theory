@@ -5,7 +5,7 @@ Require Import msl.eq_dec.
 Require Import Coq.Unicode.Utf8.
 Require Import Coq.Program.Equality.
 
-Require Import Types.
+Require Import Types. Import HE.
 Require Import Judge.
 Require Import Subst.
 Require Import ProgramLogic.
@@ -77,15 +77,42 @@ Proof.
   eauto with datatypes.
 Qed.
 
-Lemma fresh_var_cons_hp :
-  forall G H lxt x, fresh x G (lxt :: H) -> fresh x G H.
+Lemma bind_not_in_cons :
+  forall (H : heap_env) (l : loc) xt x',
+   ~ In l H ->  bind_not_in x' (add l xt H) -> bind_not_in x' H.
 Proof.
-  firstorder.
-  unfold bind_not_in in *.
-  rewrite Forall_forall in *.
   intros.
-  apply H2.
-  eauto with datatypes.
+  assert ((fst xt) <> x').
+  intro. subst x'.
+  unfold bind_not_in in *.
+  specialize (H1 l (snd xt)).
+  destruct (eq_dec l l).
+  rewrite HE_Props.F.add_eq_o in H1.
+  apply H1. destruct xt. reflexivity. reflexivity. 
+  congruence.
+  
+  unfold bind_not_in in *.
+  intros l' t'.
+  
+  specialize (H1 l').
+  rewrite HE_Props.F.add_o in H1.
+  destruct (HE_Props.F.eq_dec l l').
+  
+  subst l.
+  apply HE_Props.F.not_find_in_iff in H0.
+  intro. rewrite H0 in H3. discriminate H3.
+  
+  apply H1.
+Qed.
+
+Lemma fresh_var_cons_hp :
+  forall G H l xt x, ~ In l H -> fresh x G (add l xt H) -> fresh x G H.
+Proof.
+  intros.
+  unfold fresh in *.
+  decompose [and] H1.
+  repeat split; try assumption.
+  eapply bind_not_in_cons; eauto.
 Qed.
   
 Lemma fresh_var_nonmem_env :
@@ -106,21 +133,23 @@ Proof.
   intros.
   unfold var_not_in in *.
   rewrite Forall_forall in *.
-  specialize (H (x',t)).
+  specialize (H (x',t0)).
   apply H.
   left.
   reflexivity.
 Qed.
 
 Lemma bind_not_in_not_eq :
-  forall H v l x t, bind_not_in v ((l,(x,t)) :: H) -> x <> v.
+  forall H v l x t, bind_not_in v (add l (x,t) H) -> x <> v.
 Proof.
   intros.
   unfold bind_not_in in *.
-  rewrite Forall_forall in *.
-  specialize (H0 (l,(x,t))).
-  apply H0.
-  eauto with datatypes.
+  specialize (H0 l t0).
+  rewrite HE_Props.F.add_eq_o in H0.
+  intro.
+  subst.
+  congruence.
+  reflexivity.
 Qed.
 
 Lemma var_not_in_and_in :
@@ -137,15 +166,7 @@ Lemma bind_not_in_and_in :
   forall H x, bind_not_in x H <-> ~ (bind_in x H).
 Proof.
   intros.
-  unfold bind_not_in, bind_in.
-  rewrite Forall_forall.
   firstorder.
-  intro.
-  subst x.
-  destruct x0 as [l [x t]].
-  apply (H0 l).
-  exists t.
-  apply H1.
 Qed.
 
 Lemma bind_in_and_not_in_eq :
@@ -153,10 +174,11 @@ Lemma bind_in_and_not_in_eq :
 Proof.
   unfold bind_not_in, bind_in.
   intros.
-  repeat destruct H1; intros.
-  rewrite Forall_forall in H0.
-  specialize (H0 (x0, (x, x1))).
-  eauto with datatypes.
+  destruct H1.
+  specialize (H0 x0).
+  destruct H1.
+  specialize (H0 x1).
+  congruence.
 Qed.
   
 Hint Resolve 
@@ -214,9 +236,9 @@ Proof.
     inversion H1; subst.
     inversion H1; subst. 
       eapply var_not_in_and_in; eauto.
-      eapply bind_not_in_and_in; eauto.
+      apply bind_not_in_and_in in H4. congruence.
       congruence.
-      eapply bind_not_in_and_in; eauto.
+      apply bind_not_in_and_in in H4. congruence.
       congruence.
   + intro x.
     unfold FV in *.
@@ -486,7 +508,8 @@ Proof.
   intros.
   unfold nonfreevars.
   intro e.
-  unfold sep_ty. destruct t as [ b p ].
+  unfold sep_ty. 
+  destruct t0 as [ b p ].
   push_subst.
   f_equal.
   f_equal.
@@ -535,13 +558,29 @@ Proof.
     apply IHG; inversion wf; eauto with var wf.
 Qed.
 
+(* 
 Lemma wf_heap_loc_fresh :
   forall G H l x t,
-    wf_heap G ((l, (x, t)) :: H) ((l, (x, t)) :: H) ->
+    wf_heap G (add l (x, t) H) (add l (x, t) H) ->
     fresh_loc l G H.
 Proof.
   intros.
-  inversion H0. subst.
+  inv H0.
+  rewrite (@HE_Props.elements_Empty (var * reft_type)) in H1.
+  pose (HE_Props.F.elements_mapsto_iff (add l (x, t0) H) l (x, t0)).
+  destruct i. 
+  rewrite H1 in H0.
+  assert (MapsTo l (x, t0) (add l (x, t0) H)).
+  apply HE_Props.F.find_mapsto_iff.
+  rewrite HE_Props.F.add_eq_o. reflexivity. reflexivity.
+  apply H0 in H3.
+  inv H3.
+  constructor.
+
+  pose (@HE_Props.F.empty_o type_binding l).
+  pose (@find (type_binding) l (HE.empty type_binding) = @find type_binding l (add l (x, t0) H)).
+  Set Printing All. idtac.
+  rewrite e in P.
   unfold fresh_loc in *.
   apply H8.
 Qed.
@@ -567,29 +606,228 @@ Proof.
 Qed.
 
 Hint Resolve wf_heap_loc_fresh : var wf.
+*)
+
+Lemma sep_heap_emp :
+  sep_heap (empty type_binding) = emp.
+Proof.
+  reflexivity.
+Qed.
+(*
+Lemma MapsTo_sepheap :
+  forall H l xt,
+    InA (eq_key_elt (elt := type_binding)) (l,xt) H -> 
+    exists H1 H2,
+      (H = H1 ++ (l, xt) :: H2)
+      /\ (sep_heap' H |-- sep_heap' H1 * sep_heap_bind l xt * sep_heap' H2).
+Proof.
+  intros.
+  induction H as [| [l' xt']]. 
+    * inversion H0.
+    * destruct (InA_split H0) as [H' [[l'' xt''] [H'']]]. 
+      destruct H1. inv H1. simpl in H3. simpl in H4. subst.
+      inv H0.
+      inv H3. simpl in H0. simpl in H1. subst.
+      exists []. exists H.
+      split. reflexivity.
+      unfold sep_heap'; fold sep_heap'.
+      rewrite sepcon_assoc.
+      rewrite sepcon_comm with (P := emp).
+      rewrite sepcon_emp.
+      apply derives_refl.
+      apply IHlist in H3.
+      destruct H3 as [H1'].
+      destruct H0 as [H1''].
+      destruct H0.
+      exists ((l',xt') :: H1'). exists H1''.
+      split. 
+      simpl.
+      rewrite H0. reflexivity.
+      unfold sep_heap'; fold sep_heap'.
+      rewrite sepcon_comm with (Q := sep_heap' H1').
+      rewrite sepcon_comm with (Q := sep_heap_bind l'' xt'').
+      rewrite sepcon_assoc.
+      rewrite sepcon_comm with (Q := sep_heap' H1'').
+      rewrite <- sepcon_assoc.
+      rewrite <- sepcon_assoc.
+      rewrite sepcon_comm with (Q := sep_heap' H).
+      apply sepcon_derives.
+      rewrite sepcon_comm.
+      rewrite <- sepcon_assoc.
+      apply H1.
+      apply derives_refl.
+Qed.
+
+Lemma sep_heap_app :
+  forall H1 H2,
+    sep_heap' (H1 ++ H2) = sep_heap' H1 * sep_heap' H2.
+Proof.
+  induction H1 as [| [l xt]]; intros.
+  rewrite app_nil_l.
+  apply pred_ext.
+  rewrite <- sepcon_emp at 1. rewrite sepcon_comm.
+  apply derives_refl. 
+  rewrite <- sepcon_emp. rewrite sepcon_comm.
+  apply derives_refl.
+  rewrite <- app_comm_cons.
+  unfold sep_heap'; fold sep_heap'.
+  rewrite IHlist.
+  rewrite sepcon_assoc.
+  reflexivity.
+Qed.
+*)
+
+Definition eqA := eq_key_elt (elt := type_binding).
+
+(*
+Lemma In_app_sub :
+  forall p p' H H' H'',
+    (InA eqA p (p' :: H) ↔ InA eqA p (H' ++ p' :: H''))
+    ->
+    (eqA p p' \/ (InA eqA p H ↔ InA eqA p (H' ++ H''))).
+Proof.
+  intros until p'.
+  destruct (eq_dec p p').
+  subst. left. reflexivity.
+  intro H.
+  induction H; intros. 
+  right.
+  destruct H.
+  constructor; intro. 
+   * inv H1.
+   * apply InA_app in H1.
+     destruct H1.
+     cut (InA eqA p (H' ++ p' :: H'')).
+     intro. apply H0 in H2. inv H2. inv H4. destruct p. destruct p'. simpl in H2, H3. subst.
+     congruence. assumption.
+     apply InA_app_iff.
+     apply HE_Props.eqke_equiv.
+       left. apply H1.
+     cut (InA eqA p (H' ++ p' :: H'')).
+     intro. apply H0 in H2. inv H2. inv H4. destruct p. destruct p'. simpl in H2, H3. subst.
+     congruence. assumption.
+     apply InA_app_iff.
+       apply HE_Props.eqke_equiv.
+       right.
+       apply InA_cons. right. assumption.
+       apply HE_Props.eqke_equiv.
+  * destruct H0.
+    destruct (eq_dec p p').
+    left. inv e. reflexivity.
+    right.
+    constructor; intro.
+    + cut (InA eqA p (p' :: a :: H)).
+      intro.
+      apply H0 in H3.
+      apply InA_app_iff. apply HE_Props.eqke_equiv.
+      apply InA_app in H3.
+      destruct H3. left. assumption.
+      inv H3. inv H5. destruct p. destruct p'. simpl in *. subst. congruence.
+      right. assumption. apply HE_Props.eqke_equiv.
+      apply InA_cons. right. assumption.
+    + cut (InA eqA p (H' ++ p' :: H'')).
+      intro IN.
+      apply H1 in IN. inv IN.
+      inv H4. destruct p; destruct p'; simpl in *; subst; congruence.
+      assumption.
+      apply InA_app_iff. apply HE_Props.eqke_equiv.
+      apply InA_app in H2.
+      destruct H2. left. assumption. right. apply InA_cons. right. assumption.
+      apply HE_Props.eqke_equiv.
+Qed.
+*)
+
+Lemma EqMapsTo :
+  forall H H',
+    Equal H H' -> sep_heap H = sep_heap H'.
+Proof.
+  unfold sep_heap.
+  intros.
+  apply HE_Props.fold_Equal.
+  apply EQ_EQUIVALENCE.
+  repeat (hnf; intros; subst).
+  reflexivity.
+  hnf.
+  intros.
+  simpl.
+  extensionality ρ.
+  repeat rewrite <- sepcon_assoc.
+  rewrite sepcon_comm with (P := sep_heap_bind k e ρ).
+  reflexivity.
+  assumption.
+Qed.
+
+Lemma sep_heap_maps :
+  forall H l xt,
+    MapsTo l xt H ->
+    MapsTo l (sep_heap_bind l xt)  (mapi (fun l xt => sep_heap_bind l xt) H).
+Proof.
+  intros.
+  apply HE_Props.F.mapi_1bis.
+  intros. rewrite H1. reflexivity. assumption.
+Qed.
+
+Lemma sep_heap_add :
+  forall H l xt,
+    ~ In l H -> sep_heap (add l xt H) = sep_heap_bind l xt * sep_heap H.
+Proof.
+  intros.
+  unfold sep_heap.
+  set (f := fun l xt a => sep_heap_bind l xt * a).
+  assert (eq (fold f (add l xt H) emp) (f l xt (fold f H emp))).
+  apply HE_Props.fold_add. apply EQ_EQUIVALENCE.
+  solve_proper.
+  repeat (hnf; intros; subst). unfold f.
+  rewrite sepcon_comm. rewrite sepcon_assoc. rewrite sepcon_comm with (P := a).
+  reflexivity.
+  assumption.
+  apply H1.
+Qed.
+
+Lemma sep_heap_Emp :
+  forall H, Empty H -> sep_heap H = emp.
+Proof.
+  intros.
+  unfold sep_heap. rewrite HE_Props.fold_Empty. reflexivity. apply EQ_EQUIVALENCE.
+  assumption.
+Qed.
+
+Lemma fresh_loc_not_In :
+  forall l G H, fresh_loc l G H -> ~ In l H.
+Proof.
+  intros.
+  unfold fresh_loc in *.
+  decompose [and] H0.
+  apply HE_Props.F.not_find_in_iff.
+  apply H0.
+Qed.
 
 Lemma var_nonmem_free_heap :
   forall G H H' x, fresh x G H -> wf_heap G H H' -> nonfreevars (sep_heap H') x.
 Proof.
   intros.
   induction H1.
-  + unfold nonfreevars; normalize.
+  + unfold nonfreevars. intro e.
+    rewrite sep_heap_Emp; easy. 
   + assert (x0 <> x).
       eauto with wf var.
-      unfold sep_heap; fold sep_heap.
-      unfold nonfreevars in *.
-      intros e.
-      push_subst.
-      rewrite <- IHwf_heap with (v := e).
-      repeat f_equal.
-      unfold emapsto.
-      unfold eval_to. simpl.
-      unfold subst_pred, subst_one.
-      simpl.
-      destruct (eq_dec x0 x).
-      contradiction. reflexivity.
-      rewrite <- fresh_var_nonfree_ty; eauto.
-      eauto.
+    unfold nonfreevars in *.
+    rewrite sep_heap_add.
+    intro e.
+    push_subst.
+    f_equal.
+    unfold sep_heap_bind.
+    push_subst.
+    f_equal.
+    f_equal.
+    unfold emapsto. unfold eval_to. simpl.
+    unfold subst_pred, subst_one.
+    simpl.
+    destruct (eq_dec x0 x).
+    contradiction. reflexivity.
+    rewrite <- fresh_var_nonfree_ty; eauto.
+    eauto.
+    eapply fresh_loc_not_In; eauto.
  Qed.
 
 Lemma var_nonmem_free_grd :
@@ -867,7 +1105,7 @@ Lemma sep_proof_proc_call :
     wf_guards Γ Σ Ξ ->
     ((Φ ; Γ ; Σ ; Ξ)
        ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] ::: (Γ' ; Σ')) ->
-    semax (sep_proc_env Φ) 
+    semax (sep_proc_env Φ)
           (sep_env Γ && sep_guards Ξ * sep_heap Σ)
           (proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [])
           (sep_env Γ' && sep_guards Ξ * sep_heap Σ').
@@ -875,7 +1113,15 @@ Proof.
   (** Here we goo... **)
   intros.
   inv H2.
-  rewrite sep_heap_app.
+  rewrite sep_heap_split with (H1 := Σu) (H2 := Σm).
+  rewrite sep_heap_split with (H := Σ') (H1 := Σu) (H2 := isub θ0 θl0 (s_heap_out S0)).
+  rewrite sepcon_comm with (P := sep_heap Σu).
+  rewrite sepcon_comm with (P := sep_heap Σu).
+  rewrite <- sepcon_assoc.
+  rewrite <- sepcon_assoc.
+  apply semax_frame with (R := sep_heap Σu).
+  
+  
 
 Lemma sep_proof_assign :
   forall Φ Ξ Γ Σ τ v e,
