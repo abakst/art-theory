@@ -74,8 +74,8 @@ Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec :=
   match S with
     | mkSchema xs ts hi ho (x, t) =>
       (f, mkProc xs x [] s, 
-          sep_env (combine xs ts) * TT, 
-          sep_ty (var_e x) t * TT)
+          sep_env (combine xs ts) * sep_heap hi,
+          sep_ty (var_e x) t * sep_heap ho)
   end.
 
 Fixpoint sep_proc_env (Φ : proc_env) : procspecs :=
@@ -144,14 +144,31 @@ Proof.
 Qed.
 
 Lemma subst_pure :
-  forall s (P : assert),
+  forall s P,
     pure P -> pure (subst_pred s P).
 Proof.
   firstorder.
 Qed.
-    
 
-Hint Resolve sep_pred_pure sep_ty_pure sep_env_pure sep_guard_pure subst_pure : pure.
+Lemma pure_andp_1 :
+  forall P Q, pure P -> pure (P && Q).
+Proof.
+  intros.
+  unfold pure.
+  apply andp_left1.
+  assumption.
+Qed.
+
+Lemma pure_andp_2 :
+  forall P Q, pure Q -> pure (P && Q).
+Proof.
+  intros.
+  unfold pure.
+  apply andp_left2.
+  assumption.
+Qed.
+
+Hint Resolve sep_pred_pure sep_ty_pure sep_env_pure sep_guard_pure subst_pure pure_andp_1 pure_andp_2 : pure.
 
 Ltac purity := 
   match goal with

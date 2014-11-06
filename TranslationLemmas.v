@@ -1098,29 +1098,260 @@ Proof.
   eapply exp_right. apply andp_right. rewrite H. apply prop_right. reflexivity. normalize.
 Qed.
 
+Lemma sep_schema_in_env :
+  forall Φ f p S,
+    (f, (p, S)) ∈ Φ -> sep_schema f p S ∈ sep_proc_env Φ.
+Proof.
+  induction Φ as [ | (f', (p', S'))]; intros; eauto with datatypes.
+  unfold sep_proc_env; fold sep_proc_env. 
+  inv H. inv H0. left. reflexivity. right. apply IHΦ. assumption.
+Qed.
+
+Ltac do_pure' :=
+  match goal with
+    | |- appcontext[?X && ?Y] => apply andp_left1; do_pure'
+    | |- appcontext[sep_ty] => apply sep_ty_pure
+    | |- appcontext[sep_env ?X] => apply sep_env_pure
+    | |- appcontext[sep_guards ?X] => apply sep_guard_pure
+  end.
+
+Ltac do_pure :=
+  match goal with
+    | |- _ |-- emp => do_pure'
+    | |- pure _ => do_pure'
+  end.
+
+Hint Constructors expr_type.
+
+Ltac apply_subst :=
+  unfold subst, Subst_prop, subst_prop, Subst_var_expr, subst_expr, subst_one;
+  match goal with 
+    | |- appcontext[eq_dec ?x ?x] => 
+      destruct (eq_dec x x); [ idtac | congruence ]
+    | _ => idtac
+  end.
+
+Ltac unfold_in :=
+  match goal with 
+    | H: _ ∈ (_ :: _)|- _ => inversion_clear H; subst; unfold_in
+    | H: _ = _ |- _ => inversion_clear H; subst; unfold_in
+    | _ => idtac
+  end.
+
+Lemma type_mem_interp :
+  forall Γ x T,
+    (x, T) ∈ Γ -> sep_env Γ |-- sep_ty (var_e x) T.
+Proof.
+  induction Γ as [|[x' T']]; intros.
+  + contradiction.
+  + unfold sep_env; fold sep_env.
+    unfold_in. do 2 apply andp_left1. apply derives_refl.
+    apply andp_left1. apply andp_left2. auto.
+Qed.
+
+Corollary type_mem_interp_pred :
+  forall Γ x b p,
+    (x, {ν : b | p }) ∈ Γ -> sep_env Γ |-- sep_pred (subst (subst_one ν (var_e x)) p).
+Proof.
+  intros.
+  eapply derives_trans.
+  apply type_mem_interp.
+  eauto.
+  unfold sep_ty.
+  apply andp_left1. apply andp_left2. apply derives_refl.
+Qed.
+
+Lemma subtype_interp_pred :
+  forall Γ Ξ φ φ' x b,
+    subtype Γ Ξ { ν : b | φ } { ν : b | φ' } -> 
+    (sep_env Γ && sep_guards Ξ) |-- 
+      sep_pred (subst (subst_one ν x) φ) --> 
+      sep_pred (subst (subst_one ν x) φ').
+Proof.
+  intros.
+  inv H.
+  eapply derives_trans.
+  apply H3.
+  apply allp_left with (x0 := x).
+  apply derives_refl.
+Qed.
+
+Lemma subtype_interp :
+  forall Γ Ξ φ φ' x b,
+    subtype Γ Ξ { ν : b | φ } { ν : b | φ' } -> 
+      sep_env Γ && sep_guards Ξ |-- 
+              sep_ty x { ν : b | φ } --> sep_ty x { ν : b | φ' }.
+Proof with apply derives_refl.
+  intros.
+  unfold sep_ty.
+  rewrite <- imp_andp_adjoint.
+  eapply subtype_interp_pred in H.
+  repeat rewrite <- andp_assoc.
+  rewrite <- imp_andp_adjoint in H.
+  repeat apply andp_right.
+  apply andp_left1. apply andp_left2. apply andp_left1. apply andp_left1...
+  apply andp_left2...
+  apply andp_left1.
+  destruct { ν : b | φ } eqn: FOO.
+  inv FOO.
+  rewrite andp_comm with (P := sep_base x reft_base).
+  rewrite <- andp_assoc.
+  apply andp_left1. 
+  apply H.
+  apply andp_left2...
+Qed.
+
+Hint Constructors subtype.
+
+Lemma type_interp :
+  forall Γ Σ Ξ x T,
+    expr_type Γ Σ Ξ x T ->
+    sep_env Γ && sep_guards Ξ |-- sep_ty x T.
+Proof.
+  intros Γ Σ Ξ x T ET.
+  pose (expr_eval_ty' Γ Σ Ξ x T) as E.
+  Ltac kill_easy :=
+   unfold sep_ty; apply andp_right; try do_pure; apply andp_right; apply andp_left1; eauto.
+  Ltac kill_consts :=
+    repeat apply_subst; apply andp_right; [ simpl; intros; apply prop_right; reflexivity | do_pure].
+  dependent induction ET; try kill_easy; try kill_consts.
+  clear E.
+  eapply type_mem_interp_pred; eauto.
+  inv H0.
+  eapply derives_trans with (Q := sep_env Γ && sep_guards Ξ && sep_ty e { ν : b | p }).
+  apply andp_right. apply derives_refl.
+  apply IHET; eauto.
+  rewrite imp_andp_adjoint.
+  eapply subtype_interp; eauto. 
+Qed.
+
+Lemma types_interp :
+  forall Γ Σ Ξ xts,
+    tc_list Γ Σ Ξ xts ->
+    sep_env Γ && sep_guards Ξ |-- sep_env xts.
+Proof.
+  induction xts as [ | xt]; intros.
+  + unfold sep_env at 2. apply andp_right. normalize. apply andp_left1. apply sep_env_pure.
+  + unfold sep_env at 2. fold sep_env. repeat apply andp_right.
+    * destruct xt as [x t].
+      inv H.
+      apply andp_right.
+      eapply type_interp; eauto.
+      normalize.
+    * do_pure.
+Qed.
+
+Lemma heap_subtype_interp :
+  forall Γ Ξ Σ Σ',
+    heap_subtype Γ Ξ Σ Σ' ->
+    sep_env Γ && sep_guards Ξ * sep_heap Σ |-- sep_heap Σ'.
+Proof.
+  intros.
+  induction H.
+  rewrite <- sepcon_emp.
+  rewrite sepcon_comm.
+  apply sepcon_derives. 
+  apply derives_refl. 
+  do_pure.
+  repeat rewrite sep_heap_add; eauto.
+  rewrite <- andp_dup with (P := sep_env Γ && sep_guards Ξ).
+  rewrite <- sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ).
+  rewrite <- sepcon_assoc.
+  rewrite sepcon_comm with (Q := sep_heap Σ).
+  rewrite <- sepcon_assoc.
+  rewrite <- sepcon_assoc.
+  rewrite sepcon_comm with (P := sep_heap Σ).
+  rewrite sepcon_assoc.
+  rewrite sepcon_comm with (Q := sep_heap Σ').
+  apply sepcon_derives. 
+  assumption.
+  unfold sep_heap_bind.
+  destruct t0 as [b1 p1]. destruct t' as [b2 p2].
+  assert (b1 = b2).
+    inv H1. reflexivity.
+  subst b2.
+  apply (subtype_interp _ _ _ _ (var_e x) b1) in H1.
+  rewrite sepcon_comm.
+  rewrite distrib_orp_sepcon.
+  apply orp_left.
+  apply orp_right1. rewrite <- sepcon_emp. apply sepcon_derives. apply derives_refl. do_pure.
+  apply orp_right2. rewrite sepcon_assoc. apply sepcon_derives. apply derives_refl.
+  rewrite sepcon_pure_andp; try do_pure.
+  rewrite <- imp_andp_adjoint in H1.
+  rewrite andp_comm. 
+  eauto; do_pure.
+  do_pure.
+  do_pure.
+Qed.
+
+Ltac lift_apply l :=
+  let X := fresh "X" in
+  try (simpl; intro); pose l as X; simpl in X; eapply X; clear X. 
+
 Lemma sep_proof_proc_call :
-    forall Φ Γ Γ' Σ Σ' Ξ f S (θ : var -> var) (θl : loc -> loc),
+    forall Φ Γ Γ' Σ Σ' Ξ f xs r,
     wf_env Σ Γ ->
     wf_heap Γ Σ Σ ->
     wf_guards Γ Σ Ξ ->
-    ((Φ ; Γ ; Σ ; Ξ)
-       ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] ::: (Γ' ; Σ')) ->
+    ((Φ ; Γ ; Σ ; Ξ) ⊢ proc_s f xs r [] ::: ( Γ' ; Σ')) ->
+    (* ((Φ ; Γ ; Σ ; Ξ) *)
+    (*    ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] ::: (Γ' ; Σ')) -> *)
     semax (sep_proc_env Φ)
-          (sep_env Γ && sep_guards Ξ * sep_heap Σ)
-          (proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [])
-          (sep_env Γ' && sep_guards Ξ * sep_heap Σ').
-Proof.
+          ((sep_env Γ && sep_guards Ξ) * sep_heap Σ)
+          (proc_s f xs r [])
+          ((sep_env Γ' && sep_guards Ξ) * sep_heap Σ').
+Proof with (try assumption).
   (** Here we goo... **)
   intros.
   inv H2.
-  rewrite sep_heap_split with (H1 := Σu) (H2 := Σm).
-  rewrite sep_heap_split with (H := Σ') (H1 := Σu) (H2 := isub θ0 θl0 (s_heap_out S0)).
+  rewrite sep_heap_split with (H1 := Σu) (H2 := Σm)...
+  rewrite sep_heap_split with (H := Σ') (H1 := Σu) (H2 := isub θ θl (s_heap_out S))...
   rewrite sepcon_comm with (P := sep_heap Σu).
   rewrite sepcon_comm with (P := sep_heap Σu).
   rewrite <- sepcon_assoc.
   rewrite <- sepcon_assoc.
   apply semax_frame with (R := sep_heap Σu).
+  pose (sep_schema f p S) as SchemDef.
+  unfold sep_schema in SchemDef. destruct S as [xs ts hi ho [x t]]. simpl in *.
+  apply semax_pre_post with (P' := sep_env (combine (subst θ xs) (isub θ θl ts)) 
+                                   * sep_heap (isub θ θl hi) * (sep_env Γ && sep_guards Ξ))
+                            (Q' := sep_ty (subst θ (var_e x)) (isub θ θl t) * sep_heap (isub θ θl ho) * (sep_env Γ && sep_guards Ξ)).
+  (** P ==> P' **)
+  rewrite sepcon_comm.
+  rewrite <- sepcon_assoc.
+  rewrite sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure.
+  simpl. intro w.
+  rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w).
+  rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure.
+  rewrite sepcon_assoc.
+  apply sepcon_derives.
+  apply andp_right. 
+  rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w) at 1.
+  rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure.
+  apply derives_refl.
+  lift_apply types_interp; eauto.
+  lift_apply heap_subtype_interp; eauto.
+  (** Q' ==> Q **)
+  intro ρ.
+  rewrite <- sepcon_pure_andp with (P := sep_ty (var_e (subst θ x)) (subst θl (subst θ t)) ρ).
+  rewrite sepcon_comm.
+  rewrite <- sepcon_assoc.
+  apply sepcon_derives.
+  rewrite sepcon_pure_andp; try do_pure.
+  rewrite sepcon_pure_andp; try do_pure.
+  simpl.
+  apply andp_right. apply andp_right. apply andp_right. apply andp_left2. apply derives_refl.
+  do 2 apply andp_left1. apply derives_refl.
+  do_pure.
+  apply andp_left1. apply andp_left2. apply derives_refl.
+  apply derives_refl.
+  do_pure.
+  do_pure.
+  apply semax_frame with (R := sep_env Γ && sep_guards Ξ).
+
   
+    
+    
   
 
 Lemma sep_proof_assign :

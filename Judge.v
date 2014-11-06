@@ -113,18 +113,34 @@ Inductive wf_schema : proc_schema -> Prop :=
 Inductive subtype : type_env -> guards -> reft_type -> reft_type -> Prop :=
 | st_base : 
     forall Γ Ξ b p p',
-      ((sep_env Γ && sep_guards Ξ) |-- (sep_pred p --> sep_pred p')) ->
+      sep_env Γ && sep_guards Ξ
+         |-- ALL x : expr,  sep_pred (subst (subst_one ν x) p) -->
+                             sep_pred (subst (subst_one ν x) p') ->
 (* ------------------------------------------------------------------- *)
   subtype Γ Ξ { ν : b | p } { ν : b | p' }.
 
 Definition eq_dom Σ Σ' :=
   forall l, loc_in l Σ <-> loc_in l Σ'.
 
-Definition heap_subtype Γ Ξ Σ Σ' :=
-  eq_dom Σ Σ' /\
-    forall l x, 
-      (exists t t', MapsTo l (x, t) Σ  -> MapsTo l (x, t') Σ' ->
-                    subtype Γ Ξ t t').
+Inductive heap_subtype : type_env -> guards -> heap_env -> heap_env -> Prop :=
+  | hst_emp : forall Γ Ξ, 
+(* ------------------------------------------------------------------- *)
+    heap_subtype Γ Ξ heap_emp heap_emp
+
+  | hst_bind : forall Γ Ξ Σ Σ' l x t t',
+                 ~ HE.In l Σ -> ~ HE.In l Σ' -> 
+                 subtype Γ Ξ t t' ->
+                 heap_subtype Γ Ξ Σ Σ' ->
+(* ------------------------------------------------------------------- *)
+    heap_subtype Γ Ξ (add l (x,t) Σ) (add l (x,t') Σ').
+
+(* Definition heap_subtype Γ Ξ Σ Σ' := *)
+(*   forall l x t t', MapsTo l (x, t) Σ -> MapsTo l (x, t') Σ' -> *)
+                   
+(*   eq_dom Σ Σ' /\ *)
+(*     forall l x,  *)
+(*       (exists t t', MapsTo l (x, t) Σ  -> MapsTo l (x, t') Σ' -> *)
+(*                     subtype Γ Ξ t t'). *)
 
 Inductive expr_type : type_env -> heap_env -> guards -> expr -> reft_type -> Prop :=
 | t_int : forall Γ Σ Ξ n,

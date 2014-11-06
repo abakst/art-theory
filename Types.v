@@ -178,6 +178,7 @@ Module HE_Props := WProperties_fun(Loc_as_DT)(HE).
 Definition bind_env (B T : Type) : Type := list (B * T)%type.
 Definition type_env : Type := bind_env var reft_type.
 Definition heap_env : Type := HE.t type_binding.
+Definition heap_emp := HE.empty type_binding.
 
 Definition subst_heap_var s (h : heap_env) : heap_env :=
   HE.map (fun xt => subst s xt) h.
