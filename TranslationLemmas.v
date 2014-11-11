@@ -45,6 +45,63 @@ Proof.
   normalize.
 Qed.
 
+Lemma combine_cons :
+  forall A B (a:A) (b:B) xs ys,
+    combine (a :: xs) (b :: ys) = (a, b) :: combine xs ys.
+Proof.
+  reflexivity.
+Qed.
+
+(* Lemma subst_combine_proj : *)
+(*   forall (A B D R : Type) (SA : Subst A D R) (SB : Subst B D R) *)
+(*          (xys : list (A * B)) (θ : subst_t D R), *)
+(*     subst θ xys = combine (subst θ (fst (split xys))) (subst θ (snd (split xys))). *)
+(* Proof. *)
+(*   intros. *)
+(*   induction xys. *)
+(*   * reflexivity. *)
+(*   * destruct a.  *)
+(*     rewrite split_fst. *)
+(*     rewrite split_snd. *)
+(*     unfold subst at 2 3. *)
+(*     unfold Subst_list. unfold subst_list. fold subst_list. *)
+(*     rewrite combine_cons. *)
+(*     unfold subst at 2 3 in IHxys. *)
+(*     unfold Subst_list in IHxys. *)
+(*     rewrite <- IHxys. *)
+(*     reflexivity. *)
+(* Qed. *)
+
+Lemma subst_combine :
+  forall (A B D R : Type) (SA : Subst A D R) (SB : Subst B D R)
+         (xs : list A) (ys : list B) (θ : subst_t D R),
+    length xs = length ys ->
+    subst θ (combine xs ys) = combine (subst θ xs) (subst θ ys).
+Proof.
+  intros until xs.
+  induction xs.
+  intros. destruct ys.
+    reflexivity.
+    reflexivity.
+  intros. destruct ys.
+    inversion H.
+    unfold subst at 2 3.
+    unfold Subst_list.
+    unfold subst_list. fold subst_list.
+    rewrite combine_cons.
+    rewrite combine_cons. 
+    unfold subst at 1.
+    unfold subst_list at 1.
+    fold subst_list.
+    unfold subst at 1.
+    unfold Subst_prod at 1. unfold subst_prod.
+    inversion H.
+    specialize (IHxs ys θ H1).
+    unfold subst at 2 3 in IHxs. unfold Subst_list in IHxs.
+    rewrite <- IHxs.
+    reflexivity.
+Qed.
+
 Hint Resolve subst_emp_id : subst.
 
 Lemma vv_not_fv :
@@ -207,6 +264,13 @@ Proof.
   firstorder.
 Qed.
 
+Lemma subst_dist_andp_loc :
+  forall P Q (s : loc -> loc),
+    subst_pred_loc s (P && Q) = subst_pred_loc s P && subst_pred_loc s Q.
+Proof.
+  firstorder.
+Qed.
+
 Lemma subst_dist_orp :
   forall P Q (s : var -> expr),
     subst_pred s (P || Q) = subst_pred s P || subst_pred s Q.
@@ -223,6 +287,7 @@ Qed.
 
 Ltac push_subst :=
   (repeat (first [ rewrite subst_dist_andp 
+                 | rewrite subst_dist_andp_loc
                  | rewrite subst_dist_orp 
                  | rewrite subst_dist_sepcon ])).
 
@@ -240,6 +305,7 @@ Proof.
       congruence.
       apply bind_not_in_and_in in H4. congruence.
       congruence.
+  + firstorder.
   + intro x.
     unfold FV in *.
     intros.
@@ -251,21 +317,24 @@ Proof.
     eapply IHe2; eauto.
 Qed.
 
+Hint Transparent stk hp runloc fst snd.
+
 Lemma nonfree_var_expr_eval :
   forall e e' x,
     (FV e x -> False) ->
     forall w,
-      (eval (fun i : var => eval w (subst_one x e' i), hp w) e = eval w e).
+      (eval (fun i : var => eval w (subst_one x e' i), runloc w, hp w) e = eval w e).
 Proof.
   unfold FV.
   intros.
   induction e.
   + firstorder.
-  + simpl. unfold subst_one.
+  + simpl. unfold subst_one. unfold stk, fst.
     destruct (eq_dec v x); simpl.
     subst v.
     contradiction H. left. reflexivity.
     reflexivity.
+  + reflexivity.
   + simpl.
     rewrite IHe1.
     rewrite IHe2.
@@ -337,6 +406,7 @@ Proof.
   + inversion H0; subst; eauto with datatypes wf.
       unfold var_in in *;
     destruct H4; constructor; exists x; eauto with datatypes wf.
+  + inversion H0.
   + inversion H0; subst; eauto with wf datatypes.
 Qed.
 
@@ -459,6 +529,7 @@ Proof.
   induction e.
   + eauto with wf.
   + inversion H0; split_subst_var; eauto with wf.
+  + inversion H0.
   + inversion H0; rewrite subst_expr_fun; eauto with wf.
 Qed.
 
@@ -515,8 +586,9 @@ Proof.
   f_equal.
   + unfold sep_base.
     destruct b;
-      push_subst; repeat f_equal; unfold eval_to, subst_one, subst_pred; simpl;
-      destruct (eq_dec x v); first [contradiction | reflexivity].
+      push_subst; repeat (extensionality; f_equal); 
+      unfold eval_to, subst_one, subst_pred; simpl; unfold stk; simpl;
+      destruct (eq_dec x v); try first [contradiction | reflexivity ].
   + erewrite <- fresh_var_nonfree_pred. reflexivity. eauto with wf. apply wf_subst_vv_pred; eauto with wf var.
     match goal with 
       | H: (var_in _ _  \/ bind_in _ _) |- _ =>
@@ -544,7 +616,8 @@ Proof.
     repeat rewrite subst_dist_andp.
     repeat f_equal.
     unfold sep_base, subst_pred, subst_one.
-    destruct b; unfold eval_to; simpl; extensionality; repeat f_equal; try extensionality;
+    destruct b; unfold eval_to; simpl; repeat (f_equal; extensionality);
+    unfold stk; simpl;
       try match goal with
           | |- appcontext[eq_dec ?x ?y] => destruct (eq_dec x y); (contradiction || reflexivity)
           end.
@@ -820,9 +893,9 @@ Proof.
     push_subst.
     f_equal.
     f_equal.
-    unfold emapsto. unfold eval_to. simpl.
-    unfold subst_pred, subst_one.
-    simpl.
+    unfold emapsto, eval_to; simpl.
+    unfold subst_pred, subst_one; simpl.
+    unfold stk, runloc; simpl.
     destruct (eq_dec x0 x).
     contradiction. reflexivity.
     rewrite <- fresh_var_nonfree_ty; eauto.
@@ -979,7 +1052,7 @@ Lemma subst_convert_expr :
   forall v w e e',
    ~ (FV e v) ->
    eval w (subst (subst_one v e') e) =
-   eval (λ i : var, eval w (if eq_dec i v then e' else var_e i), hp w) e.
+   eval (λ i : var, eval w (if eq_dec i v then e' else var_e i), runloc w, hp w) e.
 Proof.
   induction e; intros; auto.
   unfold subst_expr. fold subst_expr.
@@ -992,16 +1065,18 @@ Qed.
 Lemma subst_help:
   forall v e e' w,
     ~ FV e v ->
-    (eval w e = eval (λ i : var, eval w (if eq_dec i v then e' else var_e i), hp w) e).
+    (eval w e = eval (λ i : var, eval w (if eq_dec i v then e' else var_e i), runloc w, hp w) e).
 Proof.
   induction e.
   + auto.
   + intros.
-    simpl. destruct (eq_dec v0 v). subst v0. contradiction H.
+    unfold eval, stk; simpl. 
+    destruct (eq_dec v0 v). subst v0. contradiction H.
     unfold FV in *.
     simpl in *.
     eauto.
     reflexivity.
+  + auto.
   + intros.
     simpl.
     unfold FV in H. simpl in H.
@@ -1048,13 +1123,13 @@ Proof.
     unfold sep_base. simpl.
     intro w. 
     apply andp_derives.
-    destruct b; unfold eval_to; simpl; destruct (eq_dec v v) eqn:?X;
+    destruct b; unfold eval_to, eval, stk; simpl; destruct (eq_dec v v) eqn:?X;
       try (apply derives_refl || congruence).
     apply derives_refl.
   rewrite subst_prop_rel.
   rewrite subst_expr_non_fv with (e := e).
   unfold subst, Subst_var_expr, subst_one. simpl.
-  unfold subst_pred.
+  unfold subst_pred, eval, stk.
   destruct (eq_dec ν ν). 
   simpl.
   destruct (eq_dec v v).
@@ -1284,6 +1359,139 @@ Proof.
   do_pure.
 Qed.
 
+Lemma subst_loc_expr :
+  forall G H (s : loc -> loc) (e : expr),
+    wf_expr G H e ->
+    subst s e = e.
+Proof.
+  intros; match goal with 
+            | H : wf_expr _ _ _ |- _ => induction H
+          end; simpl; auto.
+  unfold subst. simpl.
+  fold (subst s e1).
+  fold (subst s e2).
+  rewrite IHwf_expr1.
+  rewrite IHwf_expr2.
+  reflexivity.
+Qed.
+
+Lemma wf_expr_not_loc :
+  forall G H (s : loc -> loc) e,
+    wf_expr G H e -> 
+    forall w, eval w e = eval (stk w, fun l => runloc w (s l), hp w) e.
+Proof.
+  intros.
+  induction H0; eauto.
+  simpl. rewrite IHwf_expr1. rewrite IHwf_expr2. reflexivity.
+Qed.
+
+Lemma subst_loc_pred_prop' :
+  forall G H (s : loc -> loc) (p : reft_prop),
+    wf_prop G H p -> 
+    forall x, sep_pred p x = subst_pred_loc s (sep_pred p) x.
+Proof.
+  intros until p.
+  induction p; intros H0 x; inv H0; eauto. 
+  unfold subst_pred_loc.
+  unfold sep_pred.
+  simpl.
+  f_equal.
+  repeat erewrite <- wf_expr_not_loc; eauto.
+  
+  unfold subst_pred_loc in *.
+  simpl.
+  rewrite <- IHp.
+  reflexivity.
+  assumption.
+
+  simpl.
+  unfold subst_pred_loc in *.
+  simpl.
+  rewrite <- IHp1; try assumption.
+  rewrite <- IHp2; try assumption.
+  reflexivity.
+   
+  simpl.
+  unfold subst_pred_loc in *.
+  simpl.
+  rewrite <- IHp1; try assumption.
+  rewrite <- IHp2; try assumption.
+  reflexivity.
+Qed.
+
+Lemma subst_loc_pred_prop :
+  forall G H (s : loc -> loc) p,
+    wf_prop G H p ->
+    sep_pred (subst s p) = subst_pred_loc s (sep_pred p).
+Proof.
+  intros.
+  unfold subst, Subst_prop_loc, subst_prop_loc.
+  extensionality.
+  erewrite <- subst_loc_pred_prop'; eauto.
+Qed.
+
+Lemma subst_base_loc :
+  forall G H (s : loc -> loc) e b,
+    wf_expr G H e ->
+    sep_base (subst s e) (subst s b) = subst_pred_loc s (sep_base e b).
+Proof.
+  intros.
+  unfold sep_base; destruct b; simpl; erewrite subst_loc_expr; eauto; unfold subst_pred_loc; extensionality.
+  + f_equal.
+    f_equal.
+    extensionality.
+    unfold eval_to.
+    erewrite <- wf_expr_not_loc; eauto.
+  + f_equal.
+    f_equal.
+    erewrite <- wf_expr_not_loc; eauto.
+  + f_equal.
+    f_equal.
+    erewrite <- wf_expr_not_loc; eauto.
+    erewrite <- wf_expr_not_loc; eauto.
+Qed.
+
+Lemma subst_prop_loc_var_comm :
+  forall (p : reft_prop) (s1 : subst_t var expr) (s2 : subst_t loc loc),
+    subst s1 (subst s2 p) = subst s2 (subst s1 p).
+Proof.
+  firstorder.
+Qed.
+
+Lemma subst_ty_loc :
+  forall G H (s : loc -> loc) x T,
+    wf_expr G H x ->
+    wf_type G H T ->
+    sep_ty (subst s x) (subst s T) = subst_pred_loc s (sep_ty x T).
+Proof.
+  intros.
+  destruct T.
+  unfold sep_ty at 2.
+  push_subst.
+  erewrite <- subst_base_loc; eauto.
+  erewrite <- subst_loc_pred_prop; eauto.
+  unfold sep_ty.
+  unfold subst at 1. simpl. extensionality. f_equal. f_equal. f_equal.
+  rewrite <- subst_prop_loc_var_comm.
+  erewrite subst_loc_expr; eauto.
+  inv H1.
+  eauto with *.
+  Grab Existential Variables.
+  exact reft_base.
+Qed.
+
+Lemma subst_ty :
+  forall {A B : Type} 
+         {ST : Subst reft_type A B} 
+         {SE : Subst expr A B }
+         {SA : Subst assert A B } (θ : A -> B) x T,
+    sep_ty (subst θ x) (subst θ T) = subst θ (sep_ty x T).
+Proof.
+  intros.
+  unfold sep_ty at 2.
+  destruct T as [b p]. 
+  unfold subst at 3.
+
 Ltac lift_apply l :=
   let X := fresh "X" in
   try (simpl; intro); pose l as X; simpl in X; eapply X; clear X. 
@@ -1313,9 +1521,9 @@ Proof with (try assumption).
   apply semax_frame with (R := sep_heap Σu).
   pose (sep_schema f p S) as SchemDef.
   unfold sep_schema in SchemDef. destruct S as [xs ts hi ho [x t]]. simpl in *.
-  apply semax_pre_post with (P' := sep_env (combine (subst θ xs) (isub θ θl ts)) 
+  apply semax_pre_post with (P' := sep_env (combine (isub θ θl xs) (isub θ θl ts)) 
                                    * sep_heap (isub θ θl hi) * (sep_env Γ && sep_guards Ξ))
-                            (Q' := sep_ty (subst θ (var_e x)) (isub θ θl t) * sep_heap (isub θ θl ho) * (sep_env Γ && sep_guards Ξ)).
+                            (Q' := sep_ty (isub θ θl (var_e x)) (isub θ θl t) * sep_heap (isub θ θl ho) * (sep_env Γ && sep_guards Ξ)).
   (** P ==> P' **)
   rewrite sepcon_comm.
   rewrite <- sepcon_assoc.
@@ -1348,6 +1556,10 @@ Proof with (try assumption).
   do_pure.
   do_pure.
   apply semax_frame with (R := sep_env Γ && sep_guards Ξ).
+  unfold isub in *.
+  rewrite <- subst_combine.
+  rewrite <- subst_combine.
+  rewrite <- subst_dist_sepcon.
 
   
     

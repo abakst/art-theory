@@ -220,16 +220,16 @@ Inductive stmt_type : proc_env ->
     forall Φ Γ Σ Σ' Σu Σm Ξ (v:var) f p S (θ : var -> var) (θl : loc -> loc),
       (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ -> 
       heap_split Σu Σm Σ -> heap_split Σu (isub θ θl (s_heap_out S)) Σ' ->
-      (forall x, θ x = (subst θ (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
+      (forall x, θ x = (isub θ θl (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
       (forall x', ~(In x' (fst (s_ret S) :: s_formals S)) -> θ x' = x') ->
       wf_env Σ' (isub θ θl (s_ret S) :: Γ) ->
       wf_heap (isub θ θl (s_ret S) :: Γ) Σ' Σ' ->
       Forall (fun t => wf_type Γ Σ t) (isub θ θl (s_formal_ts S)) ->
-      tc_list Γ Σ Ξ (combine (subst θ (s_formals S)) (isub θ θl (s_formal_ts S))) ->
+      tc_list Γ Σ Ξ (combine (isub θ θl (s_formals S)) (isub θ θl (s_formal_ts S))) ->
       heap_subtype Γ Ξ Σm (isub θ θl (s_heap_in S)) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)
-     ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] 
+     ⊢ proc_s f (isub θ θl (s_formals S)) (isub θ θl (fst (s_ret S))) [] 
        ::: (isub θ θl (s_ret S) :: Γ ; Σ'))
 
 | t_pad : 

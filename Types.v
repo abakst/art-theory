@@ -14,22 +14,6 @@ Require Import Coq.Structures.OrderedTypeEx.
 Import ListNotations.
 
 Definition vv : var := V 0.
-Inductive loc := L : nat -> loc.
-
-Definition subst_loc (s:subst_t loc loc) (l:loc) := s l.
-Instance Subst_loc_loc : Subst loc loc loc := subst_loc.
-Instance EqDec_loc : EqDec loc := _. 
-Proof. hnf. decide equality. apply eq_dec. Qed.
-
-(** Assume a mapping from locations to runtime addresses **)
-Parameter runloc : loc -> addr.
-
-Parameter runloc_inj : 
-  forall l1 l2, runloc l1 <> null -> (runloc l1 <> runloc l2).
-
-Definition subst_loc_one (l : loc) (l' : loc) : subst_t loc loc  :=
-  fun i => if eq_dec i l then l' else i.
-
 Delimit Scope reft_scope with reft.
 
 (** Type Language **)
@@ -74,6 +58,8 @@ Fixpoint subst_prop_var (s : subst_t var var) prop :=
     | or_r p1 p2  => or_r (subst_prop_var s p1) (subst_prop_var s p2)
   end.
 
+Definition subst_prop_loc (s : subst_t loc loc) (p : reft_prop) := p.
+                                                       
 Fixpoint subst_prop (s : subst_t var expr) prop :=
   match prop with
     | tt_r        => tt_r
@@ -83,6 +69,7 @@ Fixpoint subst_prop (s : subst_t var expr) prop :=
     | or_r p1 p2  => or_r (subst_prop s p1) (subst_prop s p2)
   end.
 
+Instance Subst_prop_loc : Subst reft_prop loc loc := subst_prop_loc.
 Instance Subst_prop_var : Subst reft_prop var var := subst_prop_var.
 Instance Subst_prop : Subst reft_prop var expr := subst_prop.
 
@@ -132,7 +119,7 @@ Module Loc_as_OT <: UsualOrderedType.
     match (l, l') with
       | (L n, L n') => n < n'
     end.
-  Definition eq_dec := eq_dec.
+  Definition eq_dec := (eq_dec (A := loc)).
   Lemma lt_trans : forall l1 l2 l3,
                      lt l1 l2 -> lt l2 l3 -> lt l1 l3.
   Proof.
@@ -189,6 +176,18 @@ Instance Subst_binding_loc : Subst type_binding loc loc :=
 
 Definition subst_heap_loc (s : loc -> loc) (h : heap_env) : heap_env :=
   HE.fold (fun k xt m => HE.add (s k) (subst s xt) m) h (HE.empty type_binding).
+
+Definition subst_var_loc (s : loc -> loc) (x : var) : var := x.
+
+Fixpoint subst_expr_loc (s : loc -> loc) (x : expr) : expr := 
+  match x with
+    | locvar_e l => locvar_e (s l)
+    | fun_e p e1 e2 => fun_e p (subst_expr_loc s e1) (subst_expr_loc s e2)
+    | _ => x
+  end.
+
+Instance Subst_loc_var : Subst var loc loc := subst_var_loc.
+Instance Subst_loc_expr : Subst expr loc loc := subst_expr_loc.
 
 Instance Subst_heap_loc : Subst heap_env loc loc := subst_heap_loc.
 

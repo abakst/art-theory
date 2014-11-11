@@ -52,11 +52,15 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
 
   Definition subst_pred sub (P: assert) : (assert) := 
     fun w =>
-      P (fun i => eval w (sub i), hp w).
+      P (fun i => eval w (sub i), runloc w, hp w).
   
   Definition subst_pred_var sub (P: assert) : assert :=
     fun w =>
-      P (fun i => eval w (var_e (sub i)), hp w).
+      P (fun i => eval w (var_e (sub i)), runloc w, hp w).
+  
+  Definition subst_pred_loc sub (P : assert) : assert :=
+    fun w =>
+      P (stk w, fun l => runloc w (sub l), hp w).
     
   Instance Subst_pred_var : Subst (assert) var var := subst_pred_var.
   Instance Subst_pred : Subst (assert) var expr := subst_pred.

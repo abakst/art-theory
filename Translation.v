@@ -19,7 +19,7 @@ Open Scope logic.
 Definition sep_base (x:expr) (t:base_type) : assert :=
   match t with 
     | int_t   => (EX n : nat, eval_to x (int_v n))
-    | ref_t l => (fun s => !!(eval s x = addr_v (runloc l))
+    | ref_t l => (fun s => !!(eval s x = eval s (locvar_e l))
                         && !!(eval s x <> null_v))
     | null_t  => (fun s => !!(eval s x = null_v))
   end && emp.
@@ -44,10 +44,10 @@ Fixpoint sep_env (Γ : type_env) : assert :=
     | (x,t) :: Γ' => sep_ty (var_e x) t && sep_env Γ'
   end && emp.
 
-Definition sep_heap_bind l (xt : type_binding) :=
+Definition sep_heap_bind l (xt : type_binding) : assert :=
   let (x, t) := xt in
-      !!(runloc l = null) 
-        || (emapsto (addr_v (runloc l)) (var_e x)
+      (eval_to (locvar_e l) null_v) 
+        || (emapsto (locvar_e l) (var_e x)
             * sep_ty (var_e x) t).
 
 Fixpoint sep_heap' es :=

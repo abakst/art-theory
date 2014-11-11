@@ -12,21 +12,32 @@ Import ListNotations.
 
 Delimit Scope lang_scope with lang.
 
+Inductive loc   : Set := L : nat -> loc.
 Inductive var   : Set := V : nat -> var.
 Inductive addr  : Set := A : nat -> addr.
 Inductive pname : Set := P : nat -> pname.
+
+Definition subst_loc (s:subst_t loc loc) (l:loc) := s l.
+Instance Subst_loc_loc : Subst loc loc loc := subst_loc.
+Instance EqDec_loc : EqDec loc := _. 
+Proof. hnf. decide equality. apply eq_dec. Qed.
+
+Definition subst_loc_one (l : loc) (l' : loc) : subst_t loc loc  :=
+  fun i => if eq_dec i l then l' else i.
+
+Definition null   := A 0.
 
 Inductive value : Set :=
   | int_v  : nat -> value
   | addr_v : addr -> value.
 
-Definition null   := A 0.
 Definition null_v := addr_v null.
 
 Inductive expr :=
-  | value_e : value -> expr
-  | var_e   : var -> expr
-  | fun_e   : pname -> expr -> expr -> expr. 
+  | value_e  : value -> expr
+  | var_e    : var -> expr
+  | locvar_e : loc -> expr
+  | fun_e    : pname -> expr -> expr -> expr. 
 
 Fixpoint fv_expr e :=
   match e with
@@ -136,10 +147,12 @@ Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
 Instance Subst_stmt : Subst stmt var var := subst_stmt.
 
 Definition state := var -> value.
+Definition locmap := loc -> addr.
 Definition heap  := addr -> option value.
-Definition world := (state * heap)%type.
-Definition stk (w : world) : state := fst w.
+Definition world := ((state * locmap) * heap)%type.
+Definition stk (w : world) : state := fst (fst w).
 Definition hp (w : world) : heap := snd w.
+Definition runloc (w : world) := snd (fst w). 
 
 Parameter eval_fun : pname -> expr -> expr -> value.
 
@@ -147,6 +160,7 @@ Fixpoint eval s e :=
   match e with
     | value_e v => v
     | var_e v   => stk s v
+    | locvar_e l => addr_v (runloc s l)
     | fun_e f e1 e2 => 
       let v1 := eval s e1 in
       let v2 := eval s e2 in
