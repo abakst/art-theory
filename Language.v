@@ -46,7 +46,15 @@ Fixpoint fv_expr e :=
     | _ => []
   end.
 
+Fixpoint fl_expr e :=
+  match e with
+    | locvar_e l => [l]
+    | fun_e e e1 e2 => fl_expr e1 ++ fl_expr e2
+    | _ => []
+  end.
+
 Definition FV e x := In x (fv_expr e).
+Definition FL e l := In l (fl_expr e).
   
 (* 
 Procedure p(x0 ... xn)
@@ -56,14 +64,15 @@ Record proc' {s} :=
     { p_args: list var;
       p_ret: var;
       p_mod: list var;
+      p_modl: list loc;
       p_body: s }.
 
 Inductive stmt :=
 | skip_s   : stmt
-| pad_s    : var -> var -> stmt
-| alloc_s  : var -> var -> expr -> stmt
+| pad_s    : loc -> var -> stmt
+| alloc_s  : loc -> var -> expr -> stmt
 | assign_s : var -> expr -> stmt
-| proc_s   : pname -> list var -> var -> list var -> stmt (* p(x0...xn), modifies y0...yn *)
+| proc_s   : pname -> list var -> var -> list var -> list loc -> stmt (* p(x0...xn), modifies y0...yn *)
 | seq_s    : stmt -> stmt -> stmt
 | if_s     : expr -> stmt -> stmt -> stmt
 | return_s : expr -> stmt.
@@ -139,12 +148,20 @@ Instance Subst_var_expr : Subst expr var expr := fun s v => subst_expr s v.
 
 Fixpoint subst_stmt (s:subst_t var var) (st:stmt) :=
   match st with
-    | proc_s p xs r os => proc_s p (subst s xs) (subst s r) (subst s os)
+    | proc_s p xs r os ls => proc_s p (subst s xs) (subst s r) (subst s os) ls
     | assign_s x e => assign_s (subst s x) (subst s e)
     | _ => st
   end.
 
+Fixpoint subst_stmt_loc (s: subst_t loc loc) (st: stmt) :=
+  match st with 
+    | alloc_s l x e => alloc_s (subst s l) x e
+    | proc_s p xs r os ls => proc_s p xs r os (subst s ls)
+    | _ => st
+  end.
+
 Instance Subst_stmt : Subst stmt var var := subst_stmt.
+Instance Subst_stmt_loc : Subst stmt loc loc := subst_stmt_loc.
 
 Definition state := var -> value.
 Definition locmap := loc -> addr.
@@ -171,13 +188,17 @@ Definition subst_one (x : var) (e : expr) :=
   fun i => if eq_dec i x then e else (var_e i).
 
 Inductive modvars : stmt -> var -> Prop :=
-| mod_alloc1 : forall l v e, modvars (alloc_s l v e) l
-| mod_alloc2 : forall l v e, modvars (alloc_s l v e) v
+| mod_alloc : forall l v e, modvars (alloc_s l v e) v
 | mod_assign: forall x e, modvars (assign_s x e) x
-| mod_proc1: forall f xs r os x, 
+| mod_proc1: forall f xs r os ls x, 
                In x os ->
-               modvars (proc_s f xs r os) x
-| mod_proc2: forall f xs r os, 
-               modvars (proc_s f xs r os) r
+               modvars (proc_s f xs r os ls) x
+| mod_proc2: forall f xs r os ls, 
+               modvars (proc_s f xs r os ls) r
 | mod_seq1: forall x s1 s2, modvars s1 x -> modvars (seq_s s1 s2) x
 | mod_seq2: forall x s1 s2, modvars s2 x -> modvars (seq_s s1 s2) x.
+
+Inductive modlocs : stmt -> loc -> Prop :=
+| modl_alloc : forall l v e, modlocs (alloc_s l v e) l
+| modl_proc : forall f xs r os ls l,
+                In l ls -> modlocs (proc_s f xs r os ls) l.

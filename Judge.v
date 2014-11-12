@@ -229,14 +229,14 @@ Inductive stmt_type : proc_env ->
       heap_subtype Γ Ξ Σm (isub θ θl (s_heap_in S)) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)
-     ⊢ proc_s f (isub θ θl (s_formals S)) (isub θ θl (fst (s_ret S))) [] 
+     ⊢ proc_s f (isub θ θl (s_formals S)) (isub θ θl (fst (s_ret S))) [] []
        ::: (isub θ θl (s_ret S) :: Γ ; Σ'))
 
 | t_pad : 
-    forall Φ Γ Σ Ξ l x a t,
-      fresh x Γ Σ -> fresh a Γ Σ -> fresh_loc l Γ Σ -> wf_type Γ Σ t ->
+    forall Φ Γ Σ Ξ l x t,
+      fresh x Γ Σ -> (* fresh a Γ Σ -> *) fresh_loc l Γ Σ -> wf_type Γ Σ t ->
 (* ------------------------------------------------------------------- *)
-      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s a x ::: (Γ ; add l (x,t) Σ))
+      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s l x ::: (Γ ; add l (x,t) Σ))
 
 | t_assign : 
     forall Φ Γ Σ Ξ v e τ φ, 
@@ -245,11 +245,11 @@ Inductive stmt_type : proc_env ->
   ((Φ ; Γ ; Σ ; Ξ)  ⊢ assign_s v e ::: ((v, {ν : τ | (var_e ν) .= e})::Γ ; Σ))
 
 | t_alloc :
-    forall Φ Γ Σ Ξ x y a l e t,
-      fresh x Γ Σ -> fresh a Γ Σ -> x <> y -> 
+    forall Φ Γ Σ Ξ x y l e t,
+      fresh x Γ Σ (* -> fresh a Γ Σ *) -> x <> y -> 
       expr_type Γ Σ Ξ e t -> wf_heap Γ (add l (y,t) Σ) (add l (y,t) Σ) ->
 (* ------------------------------------------------------------------- *)
-  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s a x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; (add l (y,t) Σ)))
+  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s l x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; (add l (y,t) Σ)))
 
 | t_if : 
     forall Φ Γ Γ1 Γ2 Γ' Σ Σ1 Σ2 Σ' Ξ e p s1 s2, 

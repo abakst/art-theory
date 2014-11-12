@@ -45,6 +45,15 @@ Fixpoint fv_prop φ :=
     | or_r φ1 φ2 => fv_prop φ1 ++ fv_prop φ2
   end.
 
+Fixpoint fl_prop φ :=
+  match φ with
+    | tt_r => []
+    | eq_r e1 e2 => fl_expr e1 ++ fl_expr e2
+    | not_r φ => fl_prop φ
+    | and_r φ1 φ2 => fl_prop φ1 ++ fl_prop φ2
+    | or_r φ1 φ2 => fl_prop φ1 ++ fl_prop φ2
+  end.
+
 Record reft_type : Set := 
   mkReft_type { reft_base: base_type;
                 reft_r: reft_prop } .
@@ -175,7 +184,7 @@ Instance Subst_binding_loc : Subst type_binding loc loc :=
   fun s xt => (fst xt, subst s (snd xt)).
 
 Definition subst_heap_loc (s : loc -> loc) (h : heap_env) : heap_env :=
-  HE.fold (fun k xt m => HE.add (s k) (subst s xt) m) h (HE.empty type_binding).
+  HE_Props.of_list (subst s (HE_Props.to_list h)).
 
 Definition subst_var_loc (s : loc -> loc) (x : var) : var := x.
 

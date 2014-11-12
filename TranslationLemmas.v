@@ -271,6 +271,13 @@ Proof.
   firstorder.
 Qed.
 
+Lemma subst_dist_sepcon_loc :
+  forall P Q (s : loc -> loc),
+    subst_pred_loc s (P * Q) = subst_pred_loc s P * subst_pred_loc s Q.
+Proof.
+  firstorder.
+Qed.
+
 Lemma subst_dist_orp :
   forall P Q (s : var -> expr),
     subst_pred s (P || Q) = subst_pred s P || subst_pred s Q.
@@ -285,10 +292,18 @@ Proof.
   firstorder.
 Qed.
 
+Lemma subst_cons :
+  forall { A D R : Type } { S : Subst A D R }
+         s h t,
+    subst s (h :: t) = subst s h :: subst s t.
+Proof. firstorder. Qed.
+
 Ltac push_subst :=
   (repeat (first [ rewrite subst_dist_andp 
                  | rewrite subst_dist_andp_loc
+                 | rewrite subst_dist_sepcon_loc
                  | rewrite subst_dist_orp 
+                 | rewrite subst_cons
                  | rewrite subst_dist_sepcon ])).
 
 Lemma fresh_var_expr_fv :
@@ -1360,68 +1375,72 @@ Proof.
 Qed.
 
 Lemma subst_loc_expr :
-  forall G H (s : loc -> loc) (e : expr),
-    wf_expr G H e ->
+  forall (s : loc -> loc) (e : expr),
+    fl_expr e = [] ->
     subst s e = e.
 Proof.
-  intros; match goal with 
-            | H : wf_expr _ _ _ |- _ => induction H
-          end; simpl; auto.
-  unfold subst. simpl.
-  fold (subst s e1).
-  fold (subst s e2).
-  rewrite IHwf_expr1.
-  rewrite IHwf_expr2.
-  reflexivity.
+  intros.
+  unfold subst. 
+  simpl.
+  induction e; simpl in *; try first [reflexivity | congruence].
+  apply app_eq_nil in H.
+  rewrite IHe1; repeat (reflexivity || rewrite IHe2 || intuition).
 Qed.
 
 Lemma wf_expr_not_loc :
-  forall G H (s : loc -> loc) e,
-    wf_expr G H e -> 
+  forall (s : loc -> loc) e,
+    fl_expr e = [] -> 
     forall w, eval w e = eval (stk w, fun l => runloc w (s l), hp w) e.
 Proof.
   intros.
-  induction H0; eauto.
-  simpl. rewrite IHwf_expr1. rewrite IHwf_expr2. reflexivity.
+  induction e; eauto.
+  inv H.
+  simpl in *.
+  apply app_eq_nil in H.
+  intuition.
+  rewrite H.
+  rewrite H2.
+  reflexivity.
 Qed.
 
 Lemma subst_loc_pred_prop' :
-  forall G H (s : loc -> loc) (p : reft_prop),
-    wf_prop G H p -> 
+  forall  (s : loc -> loc) (p : reft_prop),
+    fl_prop p = [] ->
     forall x, sep_pred p x = subst_pred_loc s (sep_pred p) x.
 Proof.
   intros until p.
-  induction p; intros H0 x; inv H0; eauto. 
-  unfold subst_pred_loc.
-  unfold sep_pred.
-  simpl.
-  f_equal.
-  repeat erewrite <- wf_expr_not_loc; eauto.
-  
-  unfold subst_pred_loc in *.
-  simpl.
-  rewrite <- IHp.
-  reflexivity.
-  assumption.
-
-  simpl.
-  unfold subst_pred_loc in *.
-  simpl.
-  rewrite <- IHp1; try assumption.
-  rewrite <- IHp2; try assumption.
-  reflexivity.
-   
-  simpl.
-  unfold subst_pred_loc in *.
-  simpl.
-  rewrite <- IHp1; try assumption.
-  rewrite <- IHp2; try assumption.
-  reflexivity.
+  induction p; intro; eauto. 
+  +  intro w.
+     unfold sep_pred.
+     unfold fl_prop in *.
+     apply app_eq_nil in H.
+     unfold subst_pred_loc.
+     simpl.
+     f_equal.
+     intuition; repeat erewrite <- wf_expr_not_loc; eauto.
+  + intro w.
+    unfold subst_pred_loc in *.
+    simpl.
+    rewrite <- IHp.
+    reflexivity.
+    assumption.
+  + intro w.
+    unfold subst_pred_loc in *.
+    simpl in *.
+    apply app_eq_nil in H.
+    rewrite <- IHp1; try solve [intuition; eauto].
+    rewrite <- IHp2; intuition; eauto.
+  + intro w.
+    unfold subst_pred_loc in *.
+    simpl in *.
+    apply app_eq_nil in H.
+    rewrite <- IHp1; try solve [intuition; eauto].
+    rewrite <- IHp2; intuition; eauto.
 Qed.
 
 Lemma subst_loc_pred_prop :
-  forall G H (s : loc -> loc) p,
-    wf_prop G H p ->
+  forall (s : loc -> loc) p,
+    fl_prop p = [] ->
     sep_pred (subst s p) = subst_pred_loc s (sep_pred p).
 Proof.
   intros.
@@ -1431,8 +1450,8 @@ Proof.
 Qed.
 
 Lemma subst_base_loc :
-  forall G H (s : loc -> loc) e b,
-    wf_expr G H e ->
+  forall (s : loc -> loc) e b,
+    fl_expr e = [] -> 
     sep_base (subst s e) (subst s b) = subst_pred_loc s (sep_base e b).
 Proof.
   intros.
@@ -1458,14 +1477,70 @@ Proof.
   firstorder.
 Qed.
 
+Lemma subst_fl_closed_expr :
+  forall v x e,
+    fl_expr x = [] ->
+    fl_expr e = [] ->
+    fl_expr (subst (subst_one v x) e) = [].
+Proof.
+  intros;
+  induction e; try reflexivity.
+  + unfold subst, subst_one. simpl.
+    destruct (eq_dec v0 v); assumption. 
+  + inv H0.
+  + simpl in *.
+    apply app_eq_nil in H0.
+    destruct H0.
+    unfold subst in IHe1.
+    unfold subst in IHe2.
+    rewrite IHe1.
+    rewrite IHe2.
+    reflexivity.
+    assumption.
+    assumption.
+Qed.
+
+Lemma subst_fl_closed_prop :
+  forall v x p,
+    fl_expr x = [] ->
+    fl_prop p = [] ->
+    fl_prop (subst (subst_one v x) p ) = [].
+Proof.
+  intros.
+  induction p.
+  + reflexivity.
+  + simpl in *.
+    unfold subst.
+    apply app_eq_nil in H0.
+    repeat rewrite subst_fl_closed_expr; try (reflexivity || apply H || apply H0).
+  + auto.
+  + simpl in *.
+    apply app_eq_nil in H0.
+    unfold subst in *.
+    rewrite IHp1.
+    rewrite IHp2.
+    reflexivity.
+    apply H0.
+    apply H0.
+  + simpl in *.
+    apply app_eq_nil in H0.
+    unfold subst in *.
+    rewrite IHp1.
+    rewrite IHp2.
+    reflexivity.
+    apply H0.
+    apply H0.
+Qed.
+
 Lemma subst_ty_loc :
-  forall G H (s : loc -> loc) x T,
-    wf_expr G H x ->
-    wf_type G H T ->
+  forall (s : loc -> loc) x T,
+    fl_expr x = [] ->
+    fl_prop (reft_r T) = [] ->
     sep_ty (subst s x) (subst s T) = subst_pred_loc s (sep_ty x T).
 Proof.
   intros.
   destruct T.
+  simpl in * |- .
   unfold sep_ty at 2.
   push_subst.
   erewrite <- subst_base_loc; eauto.
@@ -1474,39 +1549,300 @@ Proof.
   unfold subst at 1. simpl. extensionality. f_equal. f_equal. f_equal.
   rewrite <- subst_prop_loc_var_comm.
   erewrite subst_loc_expr; eauto.
-  inv H1.
-  eauto with *.
-  Grab Existential Variables.
-  exact reft_base.
+  apply subst_fl_closed_prop; assumption.
 Qed.
 
-Lemma subst_ty :
-  forall {A B : Type} 
-         {ST : Subst reft_type A B} 
-         {SE : Subst expr A B }
-         {SA : Subst assert A B } (θ : A -> B) x T,
-    sep_ty (subst θ x) (subst θ T) = subst θ (sep_ty x T).
+Lemma subst_heap_loc' :
+  forall (s : loc -> loc) H,
+    fold (fun l xt a => (subst s (sep_heap_bind l xt)) * a) H emp 
+    = subst s (fold (fun l xt a => sep_heap_bind l xt * a) H emp).
 Proof.
   intros.
-  unfold sep_ty at 2.
-  destruct T as [b p]. 
-  unfold subst at 3.
+  apply HE_Props.fold_rel with
+    (R := fun a b => a = subst s b).
+  + reflexivity.
+  + intros.
+    push_subst.
+    f_equal. assumption.
+Qed.
+
+Lemma subst_heap_loc'' :
+  forall s L,
+    subst_pred_loc s
+      (fold_right (fun lxt a => sep_heap_bind (fst lxt) (snd lxt) * a) emp L)
+   = fold_right (fun lxt a => sep_heap_bind (fst lxt) (snd lxt) * a) emp (subst s L).
+Proof.
+  intros.
+  induction L as [ | [l [x t]]].
+  reflexivity.
+  unfold subst. unfold Subst_list, subst_list. fold subst_list.
+  unfold fold_right at 2. 
+  fold fold_right.
+  unfold subst in IHL.
+  unfold fold_right at 2 in IHL.
+  unfold Subst_list, subst_list in IHL. fold subst_list in IHL.
+  rewrite <- IHL.
+  unfold fold_right. push_subst.
+  f_equal.
+  unfold fst, snd.
+  unfold subst_pred_loc.
+  unfold sep_heap_bind. 
+  unfold subst. unfold Subst_prod. unfold subst_prod.
+  unfold subst, Subst_prod, subst_prod, Subst_binding_loc, Subst_loc_loc, subst_loc.
+  extensionality w.
+  unfold subst. simpl. 
+  f_equal. f_equal.
+  Admitted.
+
+Definition eqk := @eq_key type_binding.
+
+Lemma helper :
+  forall l1 l2,
+    NoDupA eqk l1 -> NoDupA eqk l2 -> 
+    (forall (lxt : (loc * type_binding)), InA eqA lxt l1 <-> InA eqA lxt l2) ->
+    Equal (HE_Props.of_list l1) (HE_Props.of_list l2).
+Proof.
+  intros.
+  rewrite HE_Props.F.Equal_mapsto_iff.
+  intros l xt.
+  specialize (H1 (l,xt)).
+  apply HE_Props.of_list_1 with (k := l) ( e := xt) in H.
+  apply HE_Props.of_list_1 with (k := l) ( e := xt) in H0.
+  rewrite H.
+  rewrite H0.
+  destruct H1.
+  split.
+  intro.
+  apply H1. assumption.
+  intro.
+  apply H2. assumption.
+Qed.
+
+Lemma thingie' :
+  forall (s : loc -> loc) (x y : loc * type_binding),
+    (forall l m, s l = s m -> l = m) ->
+    eqk (subst s x) (subst s y) -> eqk x y.
+Proof.
+  intros.
+  destruct x as [l xt].
+  destruct y as [m yt].
+  unfold eqk in H0.
+  unfold subst in H0.
+  unfold eq_key in H0.
+  inv H0.
+  apply H in H2. 
+  rewrite H2.
+  reflexivity.
+Qed.
+
+Lemma thingie :
+  forall (s : loc -> loc) (e : loc * type_binding) l,
+    (forall l m, s l = s m -> l = m) ->
+    InA eqk (subst s e) (subst s l) -> InA eqk e l.
+Proof.
+  intros.
+  induction l.
+  + inv H0.
+  + rewrite subst_cons in H0.
+    inv H0.
+    left.
+    apply thingie' with (s := s).
+    assumption.
+    apply H2.
+    right.
+    apply IHl.
+    assumption.
+Qed.
+
+Lemma NoDupA_subst_heap_binds :
+  forall (s : loc -> loc) (L : list (loc * type_binding)),
+    (forall l m, s l = s m -> l = m) ->
+    NoDupA eqk L ->
+    NoDupA eqk (subst s L).
+Proof.
+  intros.
+  induction L as [ | [l xt]].
+  + eauto.
+  + push_subst.
+    apply NoDupA_cons.
+    intro.
+    inv H0.
+    apply H4.
+    apply thingie with (s := s). 
+    assumption.
+    assumption.
+    apply IHL.
+    inv H0; assumption.
+Qed.
+
+Lemma NoDup_Heap :
+  forall s H,
+    (forall l m, s l = s m -> l = m) ->
+    (forall lxt, InA eqA lxt (elements (subst s H)) <-> 
+                InA eqA lxt (subst s (elements H))).
+Proof.
+  intros.
+  unfold subst.
+  destruct lxt as [l xt].
+  pose (HE_Props.of_list_1).
+  specialize (i type_binding (subst s (HE_Props.to_list H)) l xt).
+  split.
+  intro.
+  apply i.
+  apply NoDupA_subst_heap_binds. assumption.
+  apply elements_3w.
+  apply HE_Props.F.elements_mapsto_iff.
+  assumption.
+  intro.
+  apply i.
+  apply NoDupA_subst_heap_binds. assumption.
+  apply elements_3w.
+  assumption.
+Qed.
+
+Lemma subst_heap_loc :
+  forall (s : loc -> loc) H,
+    (forall lxt,
+      List.In lxt (elements (subst s H))
+      <-> List.In lxt (subst s (elements H))) ->
+    sep_heap (subst s H) = subst_pred_loc s (sep_heap H).
+Proof.
+  intros.
+  (* unfold sep_heap. *)
+  (* unfold subst, Subst_heap_loc, subst_heap_loc. *)
+  (* rewrite HE_Props.fold_spec_right. *)
+  (* rewrite HE_Props.fold_spec_right. *)
+  (* rewrite HE_Props.fold_spec_right. *)
+  unfold sep_heap at 2.
+  rewrite HE_Props.fold_spec_right.
+  rewrite subst_heap_loc''.
+  unfold sep_heap.
+  rewrite fold_1.
+  unfold subst.
+  unfold Subst_list.
+  assert (subst_list (loc * type_binding) _ _ _ s (rev (elements H)) = (rev (subst s (elements H)))) by admit.
+  rewrite H1.
+  rewrite fold_left_rev_right.
+  rewrite <- 
+
+  unfold subst.
+  unfold subst in H1. rewrite H1.
+  Set Printing All.
+  idtac.
+  rewrite  H1.
+  rewrite <- H0.
+
+  apply HE_Props.fold_rel with 
+  (R := fun m b => fold (fun l xt a => sep_heap_bind l xt * a) m emp = b).
+  reflexivity.
+  intros.
+  rewrite HE_Props.fold_add.
+  admit. admit. admit. admit.
+  rewrite fold_1.
+  reflexivity.
+  intros.
+  rewrite H2.
+  admit.
+  apply EQ_EQUIVALENCE.
+  solve_proper.
+  admit.
+  
+  rewrite HE_Props.fold_Empty.
+
+Lemma subst_ctx_loc :
+  forall G H s,
+    subst_pred_loc s (sep_env G) 
+    = sep_env (@subst _ _ _ (Subst_list (var * reft_type) loc loc (Subst_prod _ _ _ _ _ _)) s G).
+Proof.
+  intros.
+  induction G as [ | [x t]].
+  + reflexivity.
+  + unfold subst, Subst_list, subst_list. fold subst_list.
+    unfold sep_env; fold sep_env.
+    push_subst.
+    simpl.
+    extensionality.
+    repeat f_equal.
+    pose (subst_ty_loc ((x,t) :: G) H s (var_e x) t).
+    elim e. reflexivity. 
+    inv H0. constructor. unfold var_in. exists t. left. reflexivity.
+    inv H0; eauto.
+    rewrite IHG. reflexivity. inv H0; eauto.
+Qed.
 
 Ltac lift_apply l :=
   let X := fresh "X" in
   try (simpl; intro); pose l as X; simpl in X; eapply X; clear X. 
+
+Lemma subtype_args :
+  forall Γ Ξ Σ args Σarg,
+  sep_env Γ && sep_guards Ξ * sep_heap Σ
+   |-- sep_env args * sep_heap Σarg * (sep_env Γ && sep_guards Ξ).
+Proof.
+  (* rewrite sepcon_comm. *)
+  (* rewrite <- sepcon_assoc. *)
+  (* rewrite sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure. *)
+  (* simpl. intro w. *)
+  (* rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w). *)
+  (* rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure. *)
+  (* rewrite sepcon_assoc. *)
+  (* apply sepcon_derives. *)
+  (* apply andp_right.  *)
+  (* rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w) at 1. *)
+  (* rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure. *)
+  (* apply derives_refl. *)
+  (* lift_apply types_interp; eauto. *)
+  (* lift_apply heap_subtype_interp; eauto. *)
+Admitted.
+
+Lemma lift_derives :
+  forall (P Q : assert) x,
+    P |-- Q -> P x |-- Q x.
+Proof.
+  firstorder.
+Qed.
+
+Lemma lift_andp :
+  forall (P Q : assert) x,
+    (P && Q) x = P x && Q x.
+Proof. easy. Qed.
+
+Lemma lift_sepconp :
+  forall (P Q : assert) x,
+    (P * Q) x = P x * Q x.
+Proof. easy. Qed.
+
+Lemma lift_emp :
+  forall (x : world),
+    emp = emp x.
+Proof. easy. Qed.
+
+Ltac fix_assert_help :=
+  repeat first [ rewrite <- lift_andp
+               | rewrite <- lift_sepconp
+               | erewrite lift_emp 
+               | apply lift_derives
+               ].
+
+Ltac fix_assert :=
+  let x := fresh "ρ" in
+  match goal with 
+    | |- appcontext[fun ρ : world  => _] => intro x; fix_assert_help; clear x
+    | _ => idtac
+  end.
+                
 
 Lemma sep_proof_proc_call :
     forall Φ Γ Γ' Σ Σ' Ξ f xs r,
     wf_env Σ Γ ->
     wf_heap Γ Σ Σ ->
     wf_guards Γ Σ Ξ ->
-    ((Φ ; Γ ; Σ ; Ξ) ⊢ proc_s f xs r [] ::: ( Γ' ; Σ')) ->
+    ((Φ ; Γ ; Σ ; Ξ) ⊢ proc_s f xs r [] [] ::: ( Γ' ; Σ')) ->
     (* ((Φ ; Γ ; Σ ; Ξ) *)
     (*    ⊢ proc_s f (subst θ (s_formals S)) (subst θ (fst (s_ret S))) [] ::: (Γ' ; Σ')) -> *)
     semax (sep_proc_env Φ)
           ((sep_env Γ && sep_guards Ξ) * sep_heap Σ)
-          (proc_s f xs r [])
+          (proc_s f xs r [] [])
           ((sep_env Γ' && sep_guards Ξ) * sep_heap Σ').
 Proof with (try assumption).
   (** Here we goo... **)
@@ -1525,29 +1861,15 @@ Proof with (try assumption).
                                    * sep_heap (isub θ θl hi) * (sep_env Γ && sep_guards Ξ))
                             (Q' := sep_ty (isub θ θl (var_e x)) (isub θ θl t) * sep_heap (isub θ θl ho) * (sep_env Γ && sep_guards Ξ)).
   (** P ==> P' **)
-  rewrite sepcon_comm.
-  rewrite <- sepcon_assoc.
-  rewrite sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure.
-  simpl. intro w.
-  rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w).
-  rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure.
-  rewrite sepcon_assoc.
-  apply sepcon_derives.
-  apply andp_right. 
-  rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w) at 1.
-  rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure.
-  apply derives_refl.
-  lift_apply types_interp; eauto.
-  lift_apply heap_subtype_interp; eauto.
+  fix_assert; apply subtype_args.
   (** Q' ==> Q **)
-  intro ρ.
-  rewrite <- sepcon_pure_andp with (P := sep_ty (var_e (subst θ x)) (subst θl (subst θ t)) ρ).
+  fix_assert.
+  rewrite <- sepcon_pure_andp with (P := sep_ty (var_e (subst θ x)) (subst θl (subst θ t))).
   rewrite sepcon_comm.
   rewrite <- sepcon_assoc.
   apply sepcon_derives.
   rewrite sepcon_pure_andp; try do_pure.
   rewrite sepcon_pure_andp; try do_pure.
-  simpl.
   apply andp_right. apply andp_right. apply andp_right. apply andp_left2. apply derives_refl.
   do 2 apply andp_left1. apply derives_refl.
   do_pure.
@@ -1559,8 +1881,7 @@ Proof with (try assumption).
   unfold isub in *.
   rewrite <- subst_combine.
   rewrite <- subst_combine.
-  rewrite <- subst_dist_sepcon.
-
+  Admitted.
   
     
     

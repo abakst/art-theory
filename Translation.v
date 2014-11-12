@@ -73,7 +73,7 @@ Fixpoint sep_guards (Δ : guards) : assert :=
 Definition sep_schema (f:pname) (s:stmt) (S:proc_schema) : procspec := 
   match S with
     | mkSchema xs ts hi ho (x, t) =>
-      (f, mkProc xs x [] s, 
+      (f, mkProc xs x [] [] s, 
           sep_env (combine xs ts) * sep_heap hi,
           sep_ty (var_e x) t * sep_heap ho)
   end.

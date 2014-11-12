@@ -64,6 +64,7 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
     
   Instance Subst_pred_var : Subst (assert) var var := subst_pred_var.
   Instance Subst_pred : Subst (assert) var expr := subst_pred.
+  Instance Subst_pred_loc : Subst assert loc loc := subst_pred_loc.
                  
   Definition equal (x y: var) : assert :=
     fun w => !!(stk w x = stk w y).
@@ -76,6 +77,9 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
   Definition not_free_in (v : var) (v' : var) := v <> v'.
   Definition unique_sub s (v : var) :=
     exists v', (s v = v' /\ (forall x, x <> v -> not_free_in v' (s x))).
+  
+  Definition unique_lsub (s : subst_t loc loc) (l :loc) :=
+    exists l', (s l = l' /\ (forall x, x <> l -> l' <> s x)).
   (* Definition nonfreevars (P: assert) (x: var) : Prop := *)
   (*     P |-- (ALL v : _, subst_pred (subst_one x v) P). *)
   Definition nonfreevars (P: assert) (x: var) : Prop :=
@@ -97,11 +101,11 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
         semax F ((EX v : value, eval_to e v)
                    && subst_pred (subst_one x e) P) 
                 (alloc_s l x e) 
-                (P * emapsto (var_e l) e) 
+                (P * emapsto (locvar_e l) e) 
   | semax_proc :
       forall f p (F : procspecs) P Q,
         In (f, p, P, Q) F ->
-        semax F P (proc_s f (p_args p) (p_ret p) (p_mod p)) Q
+        semax F P (proc_s f (p_args p) (p_ret p) (p_mod p) (p_modl p)) Q
   | semax_seq : 
       forall F P Q R s1 s2,
         semax F P s1 Q -> semax F Q s2 R -> 
@@ -114,6 +118,10 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
   | semax_subst :
       forall F P s Q θ,
         semax F P s Q -> (forall x, (modvars s x -> unique_sub θ x)) ->
+        semax F (subst θ P) (subst θ s) (subst θ Q)
+  | semax_subst_loc :
+      forall F P s Q θ,
+        semax F P s Q -> (forall x, (modlocs s x -> unique_lsub θ x)) ->
         semax F (subst θ P) (subst θ s) (subst θ Q)
   | semax_pre_post :
       forall F P P' s Q Q',
