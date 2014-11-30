@@ -1,8 +1,8 @@
 Add LoadPath "vst".
 Require Export Language.
 Require Export Subst.
-(* Require Export ProgramLogic. *)
 Require Export msl.base.
+Require Export msl.eq_dec.
 Require Export msl.log_normalize.
 Require Export msl.alg_seplog.
 Require Export msl.seplog.
@@ -28,6 +28,8 @@ MSL: NatDed gives us the usual logical facts and connectives.  SepLog
 gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
 
   Parameter mpred :Type.
+  Definition assert := world -> mpred.
+
   Parameter Nm: NatDed mpred.  Existing Instance Nm.
   Parameter Sm: SepLog mpred.  Existing Instance Sm.
   Parameter Cm: ClassicalSep mpred.  Existing Instance Cm.
@@ -37,53 +39,66 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
   Parameter SRm: SepRec mpred.  Existing Instance SRm.
   Parameter mapsto: forall (a: addr)(v: value), mpred.
                          
-  Definition assert := world -> mpred.
 
   Definition pure{A : Type} {N : NatDed A } {S : SepLog A} (P : A) := P |-- emp.
   Axiom sepcon_pure_andp : forall {A : Type} {N : NatDed A} {S : SepLog A} (P Q : A), pure P -> pure Q -> ((P * Q) = (P && Q)).
  
   Definition eval_to (e: expr) (v:value) : assert :=
-    fun (w : world) => !!(eval w e = v) && emp.
+    (fun (w : world) => !!(eval w e = Some v)) && emp.
   
   Definition emapsto (e1 e2: expr) :=
     EX a : addr,  
       EX v : value, 
              eval_to e1 (addr_v a) && eval_to e2 v && (fun _ => mapsto a v).
 
-  Definition subst_pred sub (P: assert) : (assert) := 
-    fun w =>
-      P (fun i => eval w (sub i), runloc w, hp w).
+  Definition nonfv_assert {D R : Type} {E: EqDec D} {S : Subst world D R} (P : assert) (x : D) :=
+    forall w (v : R), P w = P (subst (subst_one x v) w).
+
+  (* Definition nonfl_assert (P : assert) x := *)
+  (*   forall w v, P w = P (stk w, fun l => if eq_dec x l then v else runloc w l, hp w). *)
   
-  Definition subst_pred_var sub (P: assert) : assert :=
-    fun w =>
-      P (fun i => eval w (var_e (sub i)), runloc w, hp w).
+  Definition subst_assert_var (s : subst_t var var) (P : assert) :=
+    fun w => P (subst s w).
+
+  Definition subst_assert_expr (s : subst_t var expr) (P : assert) :=
+    fun w => P (subst s w).
   
-  Definition subst_pred_loc sub (P : assert) : assert :=
-    fun w =>
-      P (stk w, fun l => runloc w (sub l), hp w).
+  Definition subst_assert_loc (s : subst_t loc loc) (P : assert) : assert :=
+    fun w => P (subst s w).
     
-  Instance Subst_pred_var : Subst (assert) var var := subst_pred_var.
-  Instance Subst_pred : Subst (assert) var expr := subst_pred.
-  Instance Subst_pred_loc : Subst assert loc loc := subst_pred_loc.
+  Instance Subst_assert_var : Subst assert var var :=
+    mkSubst _ _ _ Logic.eq nonfv_assert subst_assert_var.
+  
+  Instance Subst_assert_expr : Subst assert var expr :=
+    mkSubst _ _ _ Logic.eq nonfv_assert subst_assert_expr.
+
+  Instance Subst_assert_loc : Subst assert loc loc :=
+    mkSubst _ _ _ Logic.eq nonfv_assert subst_assert_loc.
                  
   Definition equal (x y: var) : assert :=
     fun w => !!(stk w x = stk w y).
 
   Axiom mapsto_conflict:  forall a b c, mapsto a b * mapsto a c |-- FF.
+  
   (* Parameter allocpool: forall (b: adr), mpred. *)
   (* Axiom alloc: forall b, allocpool b = ((!! (b > 0) && mapsto b 0) * allocpool (S b)). *)
 
   Definition subset (S1 S2 : var -> Prop) := forall x, S1 x -> S2 x.
-  Definition not_free_in (v : var) (v' : var) := v <> v'.
-  Definition unique_sub s (v : var) :=
-    exists v', (s v = v' /\ (forall x, x <> v -> not_free_in v' (s x))).
+  Definition not_free_in (v : var) (v' : option var) := 
+    match v' with
+      | Some v' => v <> v'
+      | None => False
+    end.
+
+  Definition unique_sub (s : subst_t var var) (v : var) :=
+    exists (v' : var), (subst s v = v' /\ (forall x, x <> v -> @nonfv var var var _ (subst s x) v')).
   
   Definition unique_lsub (s : subst_t loc loc) (l :loc) :=
-    exists l', (s l = l' /\ (forall x, x <> l -> l' <> s x)).
+    forall x, x <> l -> nonfv (subst s x) (subst s l).
   (* Definition nonfreevars (P: assert) (x: var) : Prop := *)
   (*     P |-- (ALL v : _, subst_pred (subst_one x v) P). *)
-  Definition nonfreevars (P: assert) (x: var) : Prop :=
-    forall v, (P = subst_pred (subst_one x v) P).
+  (* Definition nonfreevars (P: assert) (x: var) : Prop := *)
+  (*   forall v, (P = subst (subst_one x v) P). *)
   
   Definition procspec := (pname * proc * assert * assert)%type.
   Definition procspecs := list procspec.
@@ -95,11 +110,11 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
       forall F P x e,
         semax F (EX v : value, 
                       eval_to e v 
-                   && subst_pred (subst_one x e) P) (assign_s x e)  P 
+                   && subst (subst_one x e) P) (assign_s x e)  P 
   | semax_alloc : 
       forall F P l x e,
         semax F ((EX v : value, eval_to e v)
-                   && subst_pred (subst_one x e) P) 
+                   && subst (subst_one x e) P) 
                 (alloc_s l x e) 
                 (P * emapsto (locvar_e l) e) 
   | semax_proc :
@@ -129,7 +144,7 @@ gives us emp, *, -*, etc.  ClassicalSep tell us P * emp = P etc..  **)
         semax F P s Q
   | semax_frame :
       forall F P Q R s,
-        semax F P s Q -> subset (modvars s) (nonfreevars R) ->
+        semax F P s Q -> subset (modvars s) (nonfv_assert R) ->
         semax F (P * R)%logic s (Q * R)%logic.
       
   Notation "F |- {{ P }} s {{ Q }}" := (semax F P s Q) (no associativity, at level 90).

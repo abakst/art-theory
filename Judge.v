@@ -14,7 +14,8 @@ Require Import Translation.
 Reserved Notation "( Φ ; Γ ; S ; Ξ ) ⊢ s ::: ( O ; H )" 
          (at level 0, no associativity).
 
-Definition wf_subst θ := forall v, θ v = ν <-> v = ν.
+Definition wf_subst (θ : subst_t var var) := 
+  forall (v : var), subst θ v = ν <-> v = ν.
 
 Inductive wf_type : type_env -> heap_env -> reft_type -> Prop :=
 | wf_reft_t : forall Γ Σ b p, wf_prop Γ Σ p ->
@@ -64,8 +65,11 @@ with  wf_expr : type_env -> heap_env -> expr -> Prop :=
 (* ------------------------------------------------------------------- *)
   wf_expr Γ Σ (fun_e f e1 e2).
 
-Definition fresh x Γ Σ := x <> ν /\ var_not_in x Γ /\ bind_not_in x Σ.
-Definition fresh_loc l Γ Σ := loc_not_in l Σ /\ loc_not_in_ctx l Γ.
+Definition fresh (x : var) (Γ : type_env) (Σ : heap_env) := 
+  @nonfv _ _ var _ x ν /\ @nonfv _ _ var Subst_list Γ x /\ nonfv Σ x.
+
+Definition fresh_loc (l : loc) (Γ : type_env) (Σ : heap_env) := 
+  @nonfv _ _ loc Subst_list Γ l /\ nonfv Σ l.
             
 Inductive wf_env : heap_env -> type_env -> Prop :=
   | wf_env_nil : forall Σ, 
@@ -85,17 +89,17 @@ Inductive wf_heap : type_env -> heap_env -> heap_env -> Prop :=
     wf_heap Γ Σ Σ'
 
   | wf_heap_bind :
-      forall Γ Σ Σ0 l x t,
+      forall Γ Σ Σ0 Σ0' l x t,
         fresh x Γ Σ0 -> fresh_loc l Γ Σ0 -> bind_in x Σ ->
-        wf_type Γ Σ t -> wf_heap Γ Σ Σ0 ->
+        wf_type Γ Σ t -> wf_heap Γ Σ Σ0 -> HE_Props.Add l (x,t) Σ0 Σ0' ->
 (* ------------------------------------------------------------------- *)
-    wf_heap Γ Σ (add l (x,t) Σ0).
+    wf_heap Γ Σ Σ0'.
 
-Definition wf_guard (Γ : type_env) (Σ : heap_env) (ξ : guard) :=
-  wf_prop Γ Σ ξ /\ ~(ν ∈ fv_prop ξ).
+Definition wf_guard (Γ : type_env) (ξ : guard) :=
+  wf_prop Γ heap_emp ξ /\ (@nonfv _ _ var _ ξ ν).
 
-Definition wf_guards (Γ : type_env) (Σ : heap_env) (Ξ : guards) :=
-  Forall (fun ξ => wf_guard Γ Σ ξ) Ξ.
+Definition wf_guards (Γ : type_env) (Ξ : guards) :=
+  Forall (fun ξ => wf_guard Γ ξ) Ξ.
 
 Inductive wf_schema : proc_schema -> Prop :=
 | wf_proc_schema : 
@@ -184,8 +188,8 @@ Definition fresh_heap_binds' (Σ : heap_env) (Σ' : heap_env) :=
   forall l x t, MapsTo l (x,t) Σ -> bind_not_in x Σ'.
 
 Definition heap_subst (Σ Σ': heap_env) (θ : subst_t var var) :=
-  (forall x, bind_not_in x Σ -> θ x = x)
-  /\ (forall l xt xt', MapsTo l xt Σ -> MapsTo l xt' Σ' -> θ (fst xt) = fst xt').
+  (forall x, bind_not_in x Σ -> subst θ x = x)
+  /\ (forall l xt xt', MapsTo l xt Σ -> MapsTo l xt' Σ' -> subst θ (fst xt) = fst xt').
 
 Definition join_heap Γ1 Γ2 Γ Ξ Σ1 Σ2 Σ :=
     wf_heap Γ Σ Σ 
@@ -199,10 +203,15 @@ Definition join_heap Γ1 Γ2 Γ Ξ Σ1 Σ2 Σ :=
     /\ heap_subtype Γ1 Ξ Σ1 Σ 
     /\ heap_subtype Γ2 Ξ Σ2 Σ.
 
-Definition isub {A D R : Type} {S : Subst A D R } {SL : Subst A loc loc}
-                (θ : subst_t D R) (θl : subst_t loc loc) (t : A) 
+Definition isub {A : Type} {S : Subst A var var} {S' : Subst A loc loc}
+           (θ : subst_t var var) (θl : subst_t loc loc) (t : A) : A
   := subst θl (subst θ t).
-                              
+
+Definition fresh_new S θ θl Γ Σ :=
+  (forall x, x ∈ isub θ θl (mod_vars S) -> fresh x Γ Σ)
+  /\ fresh (isub θ θl (fst (s_ret S))) Γ Σ
+  /\ forall l, l ∈ isub θ θl (mod_locs S) -> fresh_loc l Γ Σ.
+
 Inductive stmt_type : proc_env -> 
                       type_env -> 
                       heap_env ->
@@ -215,21 +224,24 @@ Inductive stmt_type : proc_env ->
 | t_skip : forall Φ Γ Σ Ξ,
 (* ------------------------------------------------------------------- *)
    (Φ ; Γ ; Σ ; Ξ) ⊢ skip_s ::: (Γ ; Σ)
-
+                   
 | t_proc_s :
-    forall Φ Γ Σ Σ' Σu Σm Ξ (v:var) f p S (θ : var -> var) (θl : loc -> loc),
+    forall Φ Γ Σ Σ' Σu Σm Ξ (v:var) f p S (θ : subst_t var var) (θl : subst_t loc loc),
+      NonUnifyingSub θ (s_heap_in S) -> NonUnifyingSub θ (s_heap_out S) ->
+      NonUnifyingSub θl (subst θ (s_heap_in S)) -> NonUnifyingSub θl (subst θ (s_heap_out S)) ->
       (f,(p,S)) ∈ Φ -> wf_schema S -> wf_subst θ -> 
       heap_split Σu Σm Σ -> heap_split Σu (isub θ θl (s_heap_out S)) Σ' ->
-      (forall x, θ x = (isub θ θl (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
-      (forall x', ~(In x' (fst (s_ret S) :: s_formals S)) -> θ x' = x') ->
+      (forall x, subst θ x = (isub θ θl (fst (s_ret S))) <-> x = (fst (s_ret S))) ->
+      (forall x', ~(In x' (fst (s_ret S) :: mod_vars S ++ s_formals S)) -> subst θ x' = x') ->
+      fresh_new S θ θl Γ Σ ->
       wf_env Σ' (isub θ θl (s_ret S) :: Γ) ->
       wf_heap (isub θ θl (s_ret S) :: Γ) Σ' Σ' ->
-      Forall (fun t => wf_type Γ Σ t) (isub θ θl (s_formal_ts S)) ->
-      tc_list Γ Σ Ξ (combine (isub θ θl (s_formals S)) (isub θ θl (s_formal_ts S))) ->
+      Forall (fun t => wf_type Γ Σ t) (@isub _ Subst_list Subst_list  θ θl (s_formal_ts S)) ->
+      tc_list Γ Σ Ξ (combine (isub θ θl (s_formals S)) (@isub _ Subst_list Subst_list θ θl (s_formal_ts S))) ->
       heap_subtype Γ Ξ Σm (isub θ θl (s_heap_in S)) ->
 (* ------------------------------------------------------------------- *)
   ((Φ ; Γ ; Σ ; Ξ)
-     ⊢ proc_s f (isub θ θl (s_formals S)) (isub θ θl (fst (s_ret S))) [] []
+     ⊢ (isub θ θl (proc_s f (s_formals S) (fst (s_ret S)) (mod_vars S) (mod_locs S)))
        ::: (isub θ θl (s_ret S) :: Γ ; Σ'))
 
 | t_pad : 
@@ -293,3 +305,61 @@ Inductive prog_type : proc_env -> program -> Prop :=
     prog_type Φ (procdecl_p p pr prog).
 
 (* Notation  " Φ ⊢ p " := (proc_type Φ f s S) (at level 0, no associativity). *)
+
+Lemma heap_split_fresh :
+  forall h h1 h2 x g,
+    fresh x g h -> heap_split h1 h2 h -> fresh x g h1.
+Proof.
+  intros.
+  unfold fresh in *.
+  unfold heap_split in *.
+  split; try split.
+  apply H.
+  apply H.
+  decompose [and] H. clear H.
+  simpl nonfv. unfold nonfv_heap.
+  intros.
+  destruct H0.
+  simpl nonfv in *. unfold nonfv_heap in *.
+  specialize (H2 l xt).
+  destruct H2.
+  split. trivial. 
+  specialize (H4 l xt).
+  simpl nonfv in H4.
+  apply H4. apply H5. left. assumption.
+Qed.
+
+Lemma heap_split_fresh_loc :
+  forall h h1 h2 x g,
+    fresh_loc x g h -> heap_split h1 h2 h -> fresh_loc x g h1.
+Proof.
+  intros.
+  unfold fresh in *.
+  unfold heap_split in *.
+  unfold fresh_loc in *.
+  simpl nonfv in *.
+  split. easy. unfold nonfv_heap. intros.
+  destruct H0. destruct (H2 l xt). unfold nonfv_heap in *. destruct H.
+  specialize (H5 l xt). apply H5.
+  apply H4. left. easy.
+Qed.
+
+Lemma heap_split_nonfv :
+  forall (x : var) (h h1 h2 : heap_env),
+    heap_split h1 h2 h -> nonfv h x -> nonfv h1 x.
+Proof.
+  intros.
+  simpl nonfv in *.
+  unfold nonfv_heap in *.
+  unfold heap_split in *.
+  destruct H.
+  intros. 
+  specialize (H0 l xt).
+  specialize (H1 l xt).
+  apply H0.
+  apply H1.
+  left.
+  easy.
+Qed.
+
+Hint Resolve heap_split_fresh heap_split_fresh_loc : heaps.
