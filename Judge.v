@@ -17,6 +17,12 @@ Reserved Notation "( Φ ; Γ ; S ; Ξ ) ⊢ s ::: ( O ; H )"
 Definition wf_subst (θ : subst_t var var) := 
   forall (v : var), subst θ v = ν <-> v = ν.
 
+Definition fresh (x : var) (Γ : type_env) (Σ : heap_env) := 
+  @nonfv _ _ var _ x ν /\ @nonfv _ _ var Subst_list Γ x /\ nonfv Σ x.
+
+Definition fresh_loc (l : loc) (Γ : type_env) (Σ : heap_env) := 
+  @nonfv _ _ loc Subst_list Γ l /\ nonfv Σ l.
+
 Inductive wf_type : type_env -> heap_env -> reft_type -> Prop :=
 | wf_reft_t : forall Γ Σ b p, wf_prop Γ Σ p ->
 (* ------------------------------------------------------------------- *)
@@ -59,41 +65,48 @@ with  wf_expr : type_env -> heap_env -> expr -> Prop :=
 | wf_vv : forall Γ Σ,
 (* ------------------------------------------------------------------- *)
   wf_expr Γ Σ (var_e ν)
-
+          
+(* | wf_weaken :  *)
+(*     forall Γ Σ Σ' l x t e,  *)
+(*       wf_expr Γ Σ e -> loc_not_in l Σ -> HE_Props.Add l (x,t) Σ Σ' -> *)
+(* (* ------------------------------------------------------------------- *) *)
+(*   wf_expr Γ Σ' e *)
 | wf_op : forall Γ Σ f e1 e2,
             wf_expr Γ Σ e1 -> wf_expr Γ Σ e2 ->
 (* ------------------------------------------------------------------- *)
   wf_expr Γ Σ (fun_e f e1 e2).
 
-Definition fresh (x : var) (Γ : type_env) (Σ : heap_env) := 
-  @nonfv _ _ var _ x ν /\ @nonfv _ _ var Subst_list Γ x /\ nonfv Σ x.
-
-Definition fresh_loc (l : loc) (Γ : type_env) (Σ : heap_env) := 
-  @nonfv _ _ loc Subst_list Γ l /\ nonfv Σ l.
-            
 Inductive wf_env : heap_env -> type_env -> Prop :=
   | wf_env_nil : forall Σ, 
 (* ------------------------------------------------------------------- *)
     wf_env Σ nil
-
+           
   | wf_env_var : 
       forall Γ Σ x T, 
-        fresh x Γ Σ -> wf_env Σ Γ -> wf_type ((x,T) :: Γ) Σ T ->
+        (* fresh x Γ Σ ->  too strong? *)
+        var_not_in x Γ -> bind_not_in x Σ -> x <> ν ->
+        wf_env Σ Γ -> wf_type Γ Σ T ->
 (* ------------------------------------------------------------------- *)
     wf_env Σ ((x, T) :: Γ).
 
-Inductive wf_heap : type_env -> heap_env -> heap_env -> Prop :=
-  | wf_emp : 
-      forall Γ Σ Σ', Empty Σ' ->
-(* ------------------------------------------------------------------- *)
-    wf_heap Γ Σ Σ'
+(* Inductive wf_heap : type_env -> heap_env -> heap_env -> Prop := *)
+(*   | wf_emp :  *)
+(*       forall Γ Σ Σ', Empty Σ' -> *)
+(* (* ------------------------------------------------------------------- *) *)
+(*     wf_heap Γ Σ Σ' *)
 
-  | wf_heap_bind :
-      forall Γ Σ Σ0 Σ0' l x t,
-        fresh x Γ Σ0 -> fresh_loc l Γ Σ0 -> bind_in x Σ ->
-        wf_type Γ Σ t -> wf_heap Γ Σ Σ0 -> HE_Props.Add l (x,t) Σ0 Σ0' ->
-(* ------------------------------------------------------------------- *)
-    wf_heap Γ Σ Σ0'.
+(*   | wf_heap_bind : *)
+(*       forall Γ Σ Σ0 Σ0' l x t, *)
+(*         fresh x Γ Σ0 -> fresh_loc l Γ Σ0 -> bind_in x Σ -> *)
+(*         wf_type Γ Σ t -> wf_heap Γ Σ Σ0 -> HE_Props.Add l (x,t) Σ0 Σ0' -> *)
+(* (* ------------------------------------------------------------------- *) *)
+(*     wf_heap Γ Σ Σ0'. *)
+
+Definition wf_heap Γ (_ Σ : heap_env) :=
+  (forall l x t, MapsTo l (x,t) Σ -> wf_type Γ Σ t)
+/\ (forall l l' x t t', MapsTo l (x,t) Σ /\ MapsTo l' (x,t') Σ -> l = l' /\ t = t').
+
+(** Maybe not inductive...? **)
 
 Definition wf_guard (Γ : type_env) (ξ : guard) :=
   wf_prop Γ heap_emp ξ /\ (@nonfv _ _ var _ ξ ν).
@@ -179,7 +192,7 @@ Definition join_env Ξ Σ Γ1 Γ2 Γ :=
   wf_env Σ Γ
   /\ (forall x, (var_in x Γ1 /\ var_in x Γ2) <-> var_in x Γ)
   /\ Forall (fun xt => (* wf_type Γ (snd xt)  *)
-                       (* /\  *)join_var Ξ Γ1 Γ2 xt) Γ.
+               (* /\  *)join_var Ξ Γ1 Γ2 xt) Γ.
 
 Definition fresh_heap_binds (Σ : heap_env) (Γ : type_env)  :=
   forall l x t, MapsTo l (x,t) Σ -> var_not_in x Γ.
@@ -245,10 +258,11 @@ Inductive stmt_type : proc_env ->
        ::: (isub θ θl (s_ret S) :: Γ ; Σ'))
 
 | t_pad : 
-    forall Φ Γ Σ Ξ l x t,
-      fresh x Γ Σ -> (* fresh a Γ Σ -> *) fresh_loc l Γ Σ -> wf_type Γ Σ t ->
+    forall Φ Γ Σ Σ' Ξ l x t,
+      fresh x Γ Σ -> fresh_loc l Γ Σ -> wf_type Γ Σ t -> 
+      HE_Props.Add l (x,t) Σ Σ' ->
 (* ------------------------------------------------------------------- *)
-      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s l x ::: (Γ ; add l (x,t) Σ))
+      ((Φ ; Γ ; Σ ; Ξ) ⊢ pad_s l x ::: (Γ ; Σ'))
 
 | t_assign : 
     forall Φ Γ Σ Ξ v e τ φ, 
@@ -257,11 +271,12 @@ Inductive stmt_type : proc_env ->
   ((Φ ; Γ ; Σ ; Ξ)  ⊢ assign_s v e ::: ((v, {ν : τ | (var_e ν) .= e})::Γ ; Σ))
 
 | t_alloc :
-    forall Φ Γ Σ Ξ x y l e t,
-      fresh x Γ Σ (* -> fresh a Γ Σ *) -> x <> y -> 
-      expr_type Γ Σ Ξ e t -> wf_heap Γ (add l (y,t) Σ) (add l (y,t) Σ) ->
+    forall Φ Γ Σ Σ' Ξ x y l e t,
+      fresh x Γ Σ -> fresh y Γ Σ -> fresh_loc l Γ Σ -> x <> y ->
+      HE_Props.Add l (y,t) Σ Σ' ->
+      expr_type Γ Σ Ξ e t -> 
 (* ------------------------------------------------------------------- *)
-  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s l x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; (add l (y,t) Σ)))
+  ((Φ ; Γ ; Σ ; Ξ) ⊢ alloc_s l x e ::: ((x, {ν : ref_t l | tt_r})::Γ ; Σ'))
 
 | t_if : 
     forall Φ Γ Γ1 Γ2 Γ' Σ Σ1 Σ2 Σ' Ξ e p s1 s2, 
@@ -363,3 +378,50 @@ Proof.
 Qed.
 
 Hint Resolve heap_split_fresh heap_split_fresh_loc : heaps.
+
+  Ltac solve_by_rewrite :=
+    match goal with 
+      | H : _ |- _ => (rewrite H; easy) || (rewrite <- H; easy)
+    end.
+
+  Ltac solve_by_inversion :=
+    (** thanks jrw **)
+  match goal with 
+    | H : _ |- _ => solve [inversion H]
+    | H : _ |- _ => solve [inversion H]; easy
+    | H : _ |- _ => destruct H; solve_by_inversion
+  end.
+  
+  Ltac hassumption :=
+    match goal with
+      | H : _ |- _ => apply H
+    end.
+
+  Ltac decompose_all :=
+    repeat match goal with
+             | H : _ /\ _ |- _ => destruct H; decompose_all
+           end;
+    repeat match goal with
+             | H : _ \/ _ |- _ => destruct H; decompose_all
+           end.
+
+  Ltac apply_in_env f :=
+    match goal with 
+      | H : _ |- _ => apply f in H
+    end.
+
+Section Proofs.
+  Import HE.
+  Import HE_Props.
+  Import HE_Props.F.
+
+
+  Lemma fresh_var_cons :
+    forall G H xt x, fresh x (xt :: G) H -> fresh x G H.
+  Proof. 
+    firstorder. 
+  Qed.
+  
+(* Check add_mapsto_iff. *)
+End Proofs.
+

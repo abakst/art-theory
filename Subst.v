@@ -235,3 +235,29 @@ Ltac step_subst :=
             | rewrite subst_app
             | rewrite subst_rev
             ].
+
+Section Subst_List_Lemmas.
+  
+  Context {A B D R : Type }.
+  Context {S : Subst A D R}.
+  Context {S' : Subst B D R}.
+  Context {E : Equivalence (@eq A D R S)}.
+  Context {E' : Equivalence (@eq B D R S')}.
+  
+  Instance SL : Subst (list (A * B)) D R := Subst_list.
+
+  Lemma subst_cons_prod_neq_1 :
+    forall (a : A) (a' : D) (b : B) (l : list (A * B)),
+      nonfv ((a,b)::l) a' -> nonfv a a'.
+  Proof.
+    firstorder.
+  Qed.
+
+  Lemma subst_cons_prod_neq_2 :
+    forall  (a : A) (a' : D) (b : B) (l : list (A * B)),
+      nonfv ((a,b)::l) a' -> nonfv b a'.
+  Proof.
+    firstorder.
+  Qed.
+  
+End Subst_List_Lemmas.

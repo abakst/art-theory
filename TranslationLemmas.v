@@ -106,31 +106,33 @@ Qed.
 
 (* Hint Resolve subst_emp_id : subst. *)
 
+Ltac subst_all :=
+  repeat
+    match goal with
+      | H : (_, _) = (_, _) |- _ => inv H
+      | H : ?X = ?Y |- _ => subst X
+      | H : ?X = ?Y |- _ => inv H
+    end.
+
 Lemma vv_not_fv :
   forall G Gr H e T,
     wf_env H G -> expr_type G H Gr e T -> NFV e ν.
 Proof.
   intros.
   induction H1; eauto with datatypes.
-  + unfold NFV. intro. inv H.
-  + unfold NFV. intro. inv H.
-  + induction Γ.
+  + unfold NFV. intro. solve_by_inversion.
+  + unfold NFV. intro. solve_by_inversion.
+  + induction H0.
     contradiction H.
-    apply in_inv in H.
-    destruct a as [x' [b' p']].
-    destruct H. inversion H. subst.
-    inversion H0. subst.
-    unfold NFV.
-    unfold fv_expr.
-    intro.
-    inversion H1. subst.  unfold fresh in H5. destruct H5. apply H2. reflexivity. inv H2.
-    apply IHΓ. inv H0. assumption. assumption.
-Qed.
-
-Lemma fresh_var_cons :
-  forall G H xt x, fresh x (xt :: G) H -> fresh x G H.
-Proof. 
-  firstorder. 
+    intuition.
+    destruct T as [b p].
+    apply_in_env in_inv.
+    decompose_all. 
+    subst_all.
+    unfold NFV. unfold fv_expr. 
+    intro. inv H. intuition.
+    intuition.
+    intuition.
 Qed.
 
 Lemma bind_not_in_cons :
@@ -160,16 +162,6 @@ Proof.
   
   apply H1.
 Qed.
-
-(* Lemma fresh_var_cons_hp : *)
-(*   forall G H l xt x, nonfv x H -> fresh x G (add l xt H) -> fresh x G H. *)
-(* Proof. *)
-(*   intros. *)
-(*   unfold fresh in *. *)
-(*   decompose [and] H1. clear H1. *)
-(*   repeat split. assumption. assumption. *)
-(*   repeat split; try assumption. *)
-(*   eapply bind_not_in_cons; eauto. *)
 (* Qed. *)
   
 Lemma fresh_var_nonmem_env :
@@ -334,30 +326,149 @@ Hint Resolve
 (* Proof. *)
 (*   firstorder. *)
 (* Qed. *)
+
+Lemma fresh_bind_Add :
+  forall G H H' x x' l t,
+    fresh x' G H' -> 
+    fresh_loc l G H ->
+    HE_Props.Add l (x,t) H H' -> 
+    True ->
+    fresh x' G H.
+Proof.
+  intros.
+  unfold HE_Props.Add in *.
+  unfold fresh in * |-. decompose_all.
+  simpl nonfv in * |-.
+  unfold nonfv_heap in *.
+  split. 
+  hassumption.
+  split.
+  hassumption.
+  do 3 intro.
+  specialize (H5 l0 xt).
+  rewrite HE_Props.F.find_mapsto_iff in *.
+  unfold type_binding in *.
+  rewrite H2 in *.
+  rewrite HE_Props.F.add_o in *.
+  destruct xt. 
+  destruct (HE_Props.F.eq_dec l l0). 
+  subst.
+  unfold fresh_loc in *. decompose_all.
+  simpl nonfv in H7. unfold nonfv_heap in *.
+  destruct (H7 l0 (v,r)).
+  rewrite HE_Props.F.find_mapsto_iff. hassumption. congruence.
+  intuition.
+Qed.
+
+Ltac instantiate_ex :=
+  repeat match goal with
+    | H : exists _,_ |- _ => destruct H
+  end.
+
+Lemma fresh_var_expr_fv' :
+  forall G H x, 
+    (* fresh x G H -> wf_expr G H e -> wf_heap G H H -> nonfv e x. *)
+    x <> ν ->
+    wf_expr G H (var_e x) -> 
+    bind_in x H \/ var_in x G.
+    (* fresh x G H -> wf_expr G H e (** -> wf_heap G H H **) -> nonfv e x. *)
+Proof.
+  intros.
+  dependent induction H1.
+  right. assumption.
+  left. assumption.
+  contradiction H0. reflexivity.
+Qed.
+
+Lemma nonmem_var_expr_fv :
+  forall G H x e,
+    x <> ν ->
+    ~ var_in x G ->
+    ~ bind_in x H ->
+    wf_expr G H e ->
+    nonfv e x.
+Proof.
+  intros.
+  induction H3; try easy.
+  + intro. simpl fv_expr in *. inv H3; eauto with var. 
+  + intro. simpl fv_expr in *. inv H3; eauto with var.
+  + intro. simpl fv_expr in *. inv H; intuition.
+  + simpl nonfv. unfold NFV. simpl fv_expr. intro.
+    apply_in_env in_app_or.
+    intuition.
+Qed.
+
+Hint Resolve nonmem_var_expr_fv : var.
+
 Lemma fresh_var_expr_fv :
-  forall G H e x, 
+  forall G H x e,
     fresh x G H -> wf_expr G H e -> nonfv e x.
 Proof.
-  induction e.
-  + firstorder.
-  + firstorder.
-    inv H1;
-    unfold nonfv; simpl; intro; simpl in H1; destruct H1; intuition; subst x.
-    * apply var_not_in_and_in in H7. contradiction.
-      rewrite var_not_in_and_in. eapply fresh_var_not_in. unfold fresh. 
-      split. easy. split. easy. eauto.
-    * apply bind_not_in_and_in in H7. contradiction.
-      eapply fresh_var_nonmem_heap. unfold fresh; eauto.
-  + easy.
-  + intros.
-    unfold fresh in *.
-    inv H1.
-    simpl.
-    unfold NFV. intro. simpl in H1. apply in_app_or in H1.
-    destruct H1. 
-    simpl in *. 
-    apply (IHe1 x); easy.
-    apply (IHe2 x); easy.
+  intros.
+  eapply nonmem_var_expr_fv; eauto. apply H0. eauto with var. rewrite <- bind_not_in_and_in. eauto with var.
+Qed.
+
+Hint Constructors wf_expr wf_prop wf_type wf_env : wf.
+
+Lemma wf_expr_weaken_heap :
+  forall G H H' x e l t,
+    wf_expr G H e -> 
+    ~ HE.In l H ->
+    HE_Props.Add l (x,t) H H' ->
+    wf_expr G H' e.
+Proof.
+  intros.
+  dependent induction H0; eauto with wf.
+  apply wf_var_hp.
+  unfold bind_in in *.
+  instantiate_ex.
+  apply_in_env HE_Props.F.not_find_in_iff.
+  exists x0. exists x1.
+  rewrite H2 in *.
+  rewrite HE_Props.F.add_o.
+  destruct (HE_Props.F.eq_dec l x0).
+  subst. congruence.
+  assumption.
+Qed.
+
+Lemma wf_pred_weaken_heap :
+  forall G H H' x p l t,
+    wf_prop G H p ->
+    ~ HE.In l H ->
+    HE_Props.Add l (x,t) H H' ->
+    wf_prop G H' p.
+Proof.
+  intros.
+  dependent induction H0; eauto with wf.
+  constructor;
+  eauto using wf_expr_weaken_heap.
+Qed.
+
+Lemma wf_ty_weaken_heap :
+  forall G H H' x t l t',
+    wf_type G H t ->
+    ~ HE.In l H ->
+    HE_Props.Add l (x,t') H H' ->
+    wf_type G H' t.
+Proof.
+  intros.
+  inv H0.
+  eauto using wf_pred_weaken_heap with wf.
+Qed.
+
+Lemma nonmem_var_pred_fv :
+  forall G H x p,
+    x <> ν ->
+    ~ var_in x G ->
+    ~ bind_in x H ->
+    wf_prop G H p ->
+    nonfv p x.
+Proof.
+  intros.
+  induction H3; try easy. 
+  + split; eauto using nonmem_var_expr_fv.
+  + split; intuition.
+  + split; intuition.
 Qed.
 
 Lemma fresh_var_pred_fv :
@@ -365,13 +476,28 @@ Lemma fresh_var_pred_fv :
     fresh x G H -> wf_prop G H p -> nonfv p x.
 Proof.
   intros.
-  induction p; try easy; match goal with 
-                           | H : wf_prop _ _ _ |- _ => inv H end.
-  + split; eauto using fresh_var_expr_fv.
-  + intuition.
-  + simpl. intuition.
-  + simpl. intuition.
+  eapply nonmem_var_pred_fv.
+  hassumption.
+  eauto with var.
+  rewrite <- bind_not_in_and_in.
+  eauto with var.
+  assumption.
 Qed.
+
+Lemma nonmem_var_type_fv :
+  forall G H t x,
+    x <> ν ->
+    ~ var_in x G ->
+    ~ bind_in x H ->
+    wf_type G H t ->
+    nonfv t x.
+Proof.
+  intros.
+  destruct t0.
+  split. destruct reft_base; easy.
+  inv H3.
+  eauto using nonmem_var_pred_fv.
+Qed.    
 
 Hint Transparent stk hp runloc fst snd.
 
@@ -406,19 +532,23 @@ Lemma nonfree_var_expr_eval :
     fresh x G H ->
     wf_expr G H e ->
     forall w,
-   eval w e = eval (λ i : var, if eq_dec x i then e' else stk w i, runloc w, hp w) e.
+      eval w e = eval (λ i : var, if eq_dec x i then e' else stk w i, runloc w, hp w) e.
 Proof.
-  induction e; intros.
+  intros.
+  induction H1.
   * reflexivity.
-    * pose (fresh_var_expr_fv G H (var_e v)).
-      simpl in n. unfold NFV in n. simpl in n.
-      simpl. unfold stk. simpl.
-      destruct (eq_dec x v).
-      destruct (n x). assumption. assumption. left. congruence. reflexivity.
-    * reflexivity.
-    * simpl. erewrite IHe1. erewrite IHe2. reflexivity. 
-      assumption. inv H1; assumption.
-      assumption. inv H1; assumption.
+  * pose (fresh_var_expr_fv Γ Σ v).
+    simpl in n. unfold NFV  in n. simpl in n.
+    simpl. unfold stk. simpl.
+    destruct (eq_dec x v).
+    destruct (n (var_e x)); subst; try assumption. constructor. assumption. left. congruence. reflexivity.
+  * simpl. unfold stk. simpl.
+    destruct (eq_dec x v); subst.
+    apply_in_env fresh_var_nonmem_heap. 
+    apply_in_env bind_not_in_and_in. contradiction. reflexivity.
+  * simpl eval. unfold stk. simpl. destruct (eq_dec x ν). subst. firstorder.
+    reflexivity.
+  * simpl eval. rewrite IHwf_expr1. rewrite IHwf_expr2. reflexivity. assumption. assumption.
 Qed.
 
 Lemma nonfv_not_r :
@@ -477,13 +607,11 @@ Lemma wf_expr_nonfree_locs :
     wf_expr G H e -> (forall (l : loc), nonfv e l).
 Proof.
   intros.
-  induction e; try easy.
-  inv H0.
-  simpl.
-  unfold NFL.
+  induction H0; try easy.
+  simpl nonfv. unfold NFL. 
   simpl.
   intro.
-  apply in_app_or in H0. intuition.
+  apply in_app_or in H. intuition.
 Qed.
 
 Lemma wf_prop_nonfree_locs :
@@ -502,7 +630,6 @@ Proof.
   inv H0.
   eauto using wf_prop_nonfree_locs.
 Qed.
-
 Hint Resolve wf_expr_nonfree_locs wf_prop_nonfree_locs wf_type_nonfree_locs : wf.
 
 Lemma wf_heap_nonfree_locs :
@@ -511,24 +638,12 @@ Lemma wf_heap_nonfree_locs :
     (forall l x t, MapsTo l (x,t) H -> (forall (l : loc), nonfv (reft_r t) l)).
 Proof.
   intros.
-  induction H0.
-  assert (elements Σ' = []).
-  apply HE_Props.elements_Empty; assumption.
-  rewrite HE_Props.F.elements_mapsto_iff with (elt := type_binding) in H1.
-  rewrite H2 in H1.
-  inv H1.
-  + (* compare l l0; intros. *)
-    unfold HE_Props.Add in *.
-    specialize (H6 l).
-    rewrite HE_Props.F.find_mapsto_iff in *.
-    rewrite H6 in *.
-    rewrite <- HE_Props.F.find_mapsto_iff in H1.
-    apply HE_Props.F.add_mapsto_iff in H1. 
-    destruct H1. 
-    inv H1. inv H8. eauto with wf.
-    apply IHwf_heap. destruct H1. 
-    apply HE_Props.F.find_mapsto_iff.
-    apply H7.
+  unfold wf_heap in *.
+  apply H0 in H1.
+  decompose_all.
+  destruct t0.
+  eapply wf_type_nonfree_locs.
+  hassumption.
 Qed.
 
 Lemma wf_ctx_nonfree_locs :
@@ -539,28 +654,23 @@ Proof.
   intros.
   rewrite Forall_forall.
   induction H0; intros.
-  + inversion H.
-  + inv H2;
+  + solve_by_inversion. 
+  + match goal with | H : List.In _ (_ :: _) |- _ =>  inv H end;
     eauto with wf.
 Qed.
 
 Hint Resolve wf_ctx_nonfree_locs wf_heap_nonfree_locs : wf.
 Hint Resolve fresh_var_nonfree_pred : wf var.
 Hint Rewrite fresh_var_nonfree_pred : wf.
-Hint Constructors wf_expr wf_prop wf_type wf_env wf_heap : wf.
 
 Lemma wf_expr_cons :
   forall G H xt e,
     wf_expr G H e -> wf_expr (xt :: G) H e.
 Proof.
   intros.
-  induction e. 
-  + constructor.
-  + inversion H0; subst; eauto with datatypes wf.
-      unfold var_in in *;
-    destruct H4; constructor; exists x; eauto with datatypes wf.
-  + inversion H0.
-  + inversion H0; subst; eauto with wf datatypes.
+  induction H0; eauto with wf.
+  + constructor. unfold var_in in *. instantiate_ex.
+    exists x. right. assumption.
 Qed.
 
 Hint Resolve wf_expr_cons : wf.
@@ -583,6 +693,27 @@ Proof.
   inversion H0; eauto with wf.
 Qed.
 
+Lemma wf_guards_cons :
+  forall G g x t,
+    wf_guards G g -> wf_guards ((x,t) :: G) g.
+Proof.
+  induction g; intros.
+  + unfold wf_guards. rewrite Forall_forall. intuition.
+  + unfold wf_guards in *.
+    rewrite Forall_forall in *.
+    intros.
+    inv H0.
+    unfold wf_guard.
+    specialize (H x0). destruct H. left. reflexivity.
+    split.
+    apply wf_prop_cons.
+    assumption.
+    assumption.
+    unfold wf_guard.
+    destruct (H x0). right. assumption. split.
+    apply wf_prop_cons. assumption. assumption.
+Qed.
+
 Hint Resolve wf_type_cons : wf.
 Hint Constructors reft_type.
     
@@ -595,8 +726,9 @@ Proof.
   intros.
   induction G as [ | [x' [b' p']]]; subst.
     + contradiction.
-    + apply in_inv in H0. destruct H0. inversion H0. subst.
-      inversion H1; subst.
+    + apply in_inv in H0. destruct H0. inv H0. 
+      inv H1. 
+      apply wf_type_cons.
       assumption.
       inversion H1. subst. eauto with wf.
 Qed.
@@ -758,8 +890,345 @@ Proof.
     apply nonfv_andp. split.
     eapply fresh_var_nonfree_ty; eauto.
     left. unfold var_in. exists { ν : b | p}. left. reflexivity.
-    inv wf. easy.
+    inv wf. apply wf_type_cons. easy.
     apply IHG. eauto with var. inv wf. easy. easy.
+Qed.
+
+Instance Subst_list_ty_var_var : Subst (list reft_type) var var := Subst_list. 
+Instance Subst_list_ty_loc_loc : Subst (list reft_type) loc loc := Subst_list. 
+Instance Subst_list_env_var_var : Subst type_env var var := Subst_list. 
+Instance Subst_list_env_loc_loc : Subst type_env loc loc := Subst_list. 
+
+Lemma fresh_wf_ctx_nonfv :
+  forall H G x,
+    fresh x G H -> wf_env H G -> nonfv G x.
+Proof.
+  intros.
+  induction G as [| [x' t']].
+  + firstorder.
+  + simpl nonfv. unfold fv_list. split.
+    unfold fresh in *.
+    decompose_all.
+    split.
+    apply_in_env @subst_cons_prod_neq_1. hassumption. 
+    apply_in_env @subst_cons_prod_neq_2. hassumption.
+    apply IHG.
+    eauto using fresh_var_cons.
+    match goal with
+      | H : wf_env _ _ |- _ => inv H; hassumption end.
+Qed.
+
+Lemma fresh_loc_not_in_heap :
+  forall G H l,
+    fresh_loc l G H -> ~ In l H.
+Proof.
+  firstorder.
+Qed.
+
+Hint Resolve fresh_loc_not_in_heap : var wf fresh heaps.
+        
+Lemma wf_ctx_weaken_heap :
+  forall G H H' l x t,
+    wf_env H G ->
+    fresh x G H ->
+    fresh_loc l G H ->
+    HE_Props.Add l (x,t) H H' ->
+    wf_env H' G.
+Proof.
+  intros.
+  induction G as [| [x' t']]. 
+  + eauto with wf.
+  + inv H0.
+    constructor; try hassumption.
+    assert (x <> x').
+    intro. subst. hassumption. reflexivity.
+    unfold bind_not_in in *.
+    intros l'' t''.
+    rewrite H3.
+    intro.
+    rewrite HE_Props.F.add_o in *.
+    destruct (HE_Props.F.eq_dec l l'').
+    subst_all. congruence.
+    specialize (H8 l'' t''). intuition.
+    assumption.
+    firstorder.
+    firstorder.
+    eapply wf_ty_weaken_heap; eauto with fresh.
+Qed.
+
+Lemma expr_type_wf :
+  forall G H Grds e T,
+    expr_type G H Grds e T -> wf_expr G H e.
+Proof.
+  intros.
+  induction H0; try econstructor; eauto.
+  exists {ν : τ | φ}. eauto.
+Qed.
+
+Lemma wf_stmt :
+  forall Φ Γ Ξ Σ s Γ' Σ',
+    wf_env Σ Γ ->
+    (Φ ; Γ ; Σ ; Ξ) ⊢ s ::: ( Γ' ; Σ') ->
+    wf_env Σ' Γ'.
+Proof.
+  intros.
+  induction H0.
+  + trivial.
+  + trivial.
+  + eapply wf_ctx_weaken_heap; eauto.
+  + constructor; eauto with wf var.
+    hassumption.
+    constructor.
+    constructor.
+    eauto with wf.
+    eauto using expr_type_wf with var wf.
+  + constructor.
+    apply var_not_in_and_in. eapply fresh_var_not_in. hassumption.
+    rewrite bind_not_in_and_in.
+    intro.
+    unfold bind_in in *.
+    instantiate_ex.
+    rewrite H4 in *.
+    rewrite HE_Props.F.add_o in *.
+    destruct (HE_Props.F.eq_dec l x0). subst_all. congruence.
+    apply fresh_var_nonmem_heap in H0.
+    rewrite bind_not_in_and_in in *.
+    apply H0. exists x0. exists x1. assumption.
+    hassumption.
+    eapply wf_ctx_weaken_heap; eauto.
+    eauto with wf.
+  + hassumption.
+  + intuition.
+Qed.
+
+Lemma wf_weaken_heap :
+  forall Γ Σ Σ' l x T,
+    wf_heap Γ Σ Σ ->
+    fresh x Γ Σ ->
+    fresh_loc l Γ Σ ->
+    HE_Props.Add l (x, T) Σ Σ' ->
+    wf_heap Γ Σ' Σ.
+Proof.
+  firstorder.
+Qed.
+
+Lemma fresh_binder_no_mapping :
+  forall Γ Σ l x t,
+    fresh x Γ Σ ->
+    MapsTo l (x,t) Σ -> False.
+Proof.
+  firstorder.
+Qed.
+
+Lemma wf_heap_add :
+  forall Γ Σ Σ' l x t,
+    wf_type Γ Σ t ->
+    fresh x Γ Σ ->
+    fresh_loc l Γ Σ ->
+    wf_heap Γ Σ Σ ->
+    HE_Props.Add l (x,t) Σ Σ' ->
+    wf_heap Γ Σ' Σ'.
+Proof.
+  + split; repeat intro.
+    rewrite HE_Props.F.find_mapsto_iff in *.
+    rewrite H3 in *.
+    rewrite <- HE_Props.F.find_mapsto_iff in *.
+    rewrite HE_Props.F.add_mapsto_iff in *.
+    decompose_all. subst_all.
+    eauto using wf_ty_weaken_heap with wf var fresh heaps.
+    apply_in_env H2. eauto using wf_ty_weaken_heap with fresh.
+    repeat rewrite HE_Props.F.find_mapsto_iff in *.
+    repeat rewrite H3 in H4.
+    destruct H4.
+    repeat rewrite <- HE_Props.F.find_mapsto_iff in *.
+    repeat rewrite HE_Props.F.add_mapsto_iff in *.
+    decompose_all. repeat subst_all. easy. subst_all.
+    unfold wf_heap in *. decompose_all.
+    exfalso. eauto using fresh_binder_no_mapping.
+    subst_all. exfalso. eauto using fresh_binder_no_mapping.
+    unfold wf_heap in *. decompose_all.
+    destruct (H8 l0 l' x0 t1 t'). split; assumption. split; assumption.
+Qed.
+
+Hint Resolve wf_heap_add fresh_binder_no_mapping : wf var heaps.
+ 
+Lemma expr_type_wf_type :
+  forall Γ Σ Ξ e b p,
+    expr_type Γ Σ Ξ e { ν : b | p } ->
+    wf_env Σ Γ ->
+    wf_type Γ Σ { ν : b | p }.
+Proof.
+  intros.
+  induction H; eauto with wf.
+Qed.
+Hint Resolve expr_type_wf_type : wf.
+Ltac add_mapsto := 
+    match goal with
+      | A : HE_Props.Add _ _ _ _,
+        H : MapsTo _ _ _ 
+        |- _ => rewrite HE_Props.F.find_mapsto_iff in H;
+                rewrite A in H;
+                rewrite <- HE_Props.F.find_mapsto_iff in H;
+                rewrite HE_Props.F.add_mapsto_iff in H
+    end.
+
+Lemma wf_heap_stmt :
+  forall Φ Γ Ξ Σ s Γ' Σ',
+    wf_env Σ Γ ->
+    wf_heap Γ Σ Σ ->
+    (Φ ; Γ ; Σ ; Ξ) ⊢ s ::: ( Γ' ; Σ') ->
+    wf_heap Γ' Σ' Σ'.
+Proof.
+  intros.
+  induction H1; intros; eauto.
+  + eauto with wf.
+  + firstorder. destruct t0. apply wf_type_cons. eauto using expr_type_wf with wf.
+  + assert (wf_heap Γ Σ' Σ'). apply wf_heap_add with (Σ := Σ) (l := l) (x := y) (t := t0); eauto with wf.
+    destruct t0. constructor. 
+    eauto using expr_type_wf_type with wf.
+    split.
+    intros.
+    add_mapsto.
+    decompose_all;
+    subst_all;
+    destruct t1.
+    eauto using wf_ty_weaken_heap with wf var fresh heaps.
+    apply H0 in H9.
+    eauto using wf_ty_weaken_heap with wf var fresh heaps.
+    intros.
+    decompose_all.
+    repeat add_mapsto.
+    decompose_all; subst_all.
+    easy.
+    exfalso. eauto using fresh_binder_no_mapping.
+    exfalso. eauto using fresh_binder_no_mapping.
+    unfold wf_heap in *. decompose_all.
+    eapply H13. split; eauto.
+  + hassumption.
+  + apply IHstmt_type2.
+    eauto using wf_stmt.
+    apply IHstmt_type1.
+    eauto using wf_stmt.
+    assumption.
+    Grab Existential Variables.
+    exact (int_t).
+Qed.
+
+Lemma In_imp_var_in :
+  forall xt G, xt ∈ G -> var_in (fst xt) G.
+Proof.
+  unfold var_in. 
+  destruct xt as [x t].
+  intros. exists t. auto.
+Qed.
+
+Hint Resolve In_imp_var_in : env.
+
+Lemma env_monotonic :
+  forall P X G G' Hp Hp' s,
+    (P ; G ; Hp ; X) ⊢ s ::: (G' ; Hp') ->
+    forall x, var_in x G -> var_in x G'.
+Proof.
+  Ltac envmono := 
+    auto with env ||
+    (intros; unfold var_in; 
+    match goal with
+      | H: var_in ?x ?G |- (exists _, _) => destruct H;
+      match goal with
+        | t: reft_type |- _ =>
+          exists t; first [right; apply H | try left; apply H ]
+      end
+      | H : appcontext[join_env] |- _ => apply H; envmono
+    end).
+  intros; induction H; envmono. 
+Qed.
+
+Lemma wf_expr_bigger :
+  forall G G' H e,
+    wf_expr G H e ->
+    (forall x, var_in x G -> var_in x G') ->
+    wf_expr G' H e.
+Proof.
+  intros.
+  induction e.
+  + constructor.
+  + inv H0.
+    unfold var_in in *.
+    destruct (H1 v).
+    instantiate_ex.
+    exists x. assumption.
+    constructor. exists x. assumption.
+    apply wf_var_hp. assumption.
+    apply wf_vv.
+  + inversion H0.
+  + inv H0.
+    constructor.
+    intuition.
+    intuition.
+Qed.
+
+Lemma wf_prop_bigger :
+  forall G G' H p,
+    wf_prop G H p ->
+    (forall x, var_in x G -> var_in x G') ->
+    wf_prop G' H p.
+Proof.
+  intros.
+  induction p; try first [ solve [constructor] | inv H0; constructor; intuition ].
+  apply wf_expr_bigger with (G := G); assumption. 
+  apply wf_expr_bigger with (G := G); assumption. 
+Qed.
+
+Lemma wf_guard_bigger :
+  forall G G' g,
+    wf_guard G g ->
+    (forall x, var_in x G -> var_in x G') ->
+    wf_guard G' g.
+Proof.
+  intros.
+  split.
+  apply wf_prop_bigger with (G := G).  apply H. assumption.
+  apply H.
+Qed.  
+
+Lemma wf_guards_bigger :
+  forall G G' g,
+    wf_guards G g ->
+    (forall x, var_in x G -> var_in x G') ->
+    wf_guards G' g.
+Proof.
+  intros.
+  induction g; constructor.
+  inv H. eauto using wf_guard_bigger.
+  inv H. intuition.
+Qed.
+
+Lemma wf_guards_stmt :
+  forall Φ Γ Ξ Σ s Γ' Σ',
+    wf_env Σ Γ ->
+    wf_guards Γ Ξ ->
+    (Φ ; Γ ; Σ ; Ξ) ⊢ s ::: ( Γ' ; Σ') ->
+    wf_guards Γ' Ξ.
+Proof.
+  intros.
+  induction H1; eauto.
+  + unfold isub. destruct (s_ret S).
+    simpl subst at 1. unfold Subst.subst_prod. simpl subst at 1. unfold Subst.subst_prod.
+    apply wf_guards_cons. assumption.
+  + apply wf_guards_cons. assumption.
+  + apply wf_guards_cons. assumption.
+  + intuition. 
+    unfold join_env in *.
+    eapply wf_guards_bigger; eauto.
+    assert (forall x, var_in x Γ -> var_in x Γ1). eapply env_monotonic; eauto.
+    assert (forall x, var_in x Γ -> var_in x Γ2). eapply env_monotonic; eauto.
+    intros.
+    apply H2. intuition.
+  + apply IHstmt_type2.
+    eauto using wf_stmt.
+    apply IHstmt_type1.
+    eauto using wf_stmt.
+    assumption.
 Qed.
 
 Lemma sep_heap_emp :
@@ -938,6 +1407,27 @@ Proof.
 Qed.
 
 Lemma var_nonmem_free_grd :
+  forall G g x,
+    x <> ν ->
+    ~ var_in x G ->
+    wf_guards G g ->
+    nonfv (sep_guards g) x.
+Proof.
+  intros.
+  induction g as [| g'].
+  + easy.
+  + step. apply nonfv_andp. split. apply nonfv_andp. split.
+    apply SubstProp_var. 
+    apply nonmem_var_pred_fv with (G := G) (H := heap_emp); auto.
+    intro. unfold bind_in in *. instantiate_ex.
+    rewrite HE_Props.F.empty_o in *. congruence.
+    unfold wf_guards in *. inv H1. apply H4.
+    inv H1.
+    intuition.
+    easy.
+Qed.
+
+Lemma var_nonmem_free_grd' :
   forall G H g x, 
     fresh x G H -> wf_env H G -> wf_guards G g -> 
     nonfv (sep_guards g) x.
@@ -1277,15 +1767,6 @@ Proof.
   subst v. congruence. reflexivity.
   intros e' X.
   apply subst_help; easy.
-Qed.
-
-Lemma expr_type_wf :
-  forall G H Grds e T,
-    expr_type G H Grds e T -> wf_expr G H e.
-Proof.
-  intros.
-  induction H0; try econstructor; eauto.
-  exists {ν : τ | φ}. eauto.
 Qed.
 
 Lemma sep_base_eval :
@@ -1988,25 +2469,29 @@ Ltac lift_apply l :=
   try (simpl; intro); pose l as X; simpl in X; eapply X; clear X. 
 
 Lemma subtype_args :
-  forall Γ Ξ Σ args Σarg,
-  sep_env Γ && sep_guards Ξ * sep_heap Σ
+  forall Γ Ξ Σ Σm args Σarg,
+    tc_list Γ Σ Ξ args ->
+    heap_subtype Γ Ξ Σm Σarg ->
+  sep_env Γ && sep_guards Ξ * sep_heap Σm
    |-- sep_env args * sep_heap Σarg * (sep_env Γ && sep_guards Ξ).
 Proof.
-  (* rewrite sepcon_comm. *)
-  (* rewrite <- sepcon_assoc. *)
-  (* rewrite sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure. *)
-  (* simpl. intro w. *)
-  (* rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w). *)
-  (* rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure. *)
-  (* rewrite sepcon_assoc. *)
-  (* apply sepcon_derives. *)
-  (* apply andp_right.  *)
-  (* rewrite <- andp_dup with (P := sep_env Γ w && sep_guards Ξ w) at 1. *)
-  (* rewrite <- sepcon_pure_andp with (P := sep_env Γ w && sep_guards Ξ w); try do_pure. *)
-  (* apply derives_refl. *)
-  (* lift_apply types_interp; eauto. *)
-  (* lift_apply heap_subtype_interp; eauto. *)
-Admitted.
+  intros.
+  rewrite <- andp_dup with (P := sep_env Γ && sep_guards Ξ) at 1.
+  rewrite <- sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure.
+  rewrite sepcon_comm.
+  rewrite <- sepcon_assoc.
+  apply sepcon_derives.
+  rewrite <- andp_dup with (P := sep_env Γ && sep_guards Ξ) at 1.
+  rewrite <- sepcon_pure_andp with (P := sep_env Γ && sep_guards Ξ); try do_pure.
+  rewrite <- sepcon_assoc.
+  rewrite sepcon_comm.
+  apply sepcon_derives.
+  eauto using types_interp.
+  rewrite sepcon_comm.
+  eauto using heap_subtype_interp.
+  apply derives_refl.
+Qed.
+
 Notation "S · T" := (subst S T) (right associativity, at level 60).
 (* Lemma loc_sub_proc_call : *)
 (*   forall (θ : subst_t loc loc) f xs x mxs mls, *)
@@ -2120,11 +2605,6 @@ Qed.
 
 Hint Resolve loc_sub_var2var var_sub_var2var loc_subst_vv_nonfv wf_subst_vv_nonfv subst_vv_fresh : subst.
 
-Instance Subst_list_ty_var_var : Subst (list reft_type) var var := Subst_list. 
-Instance Subst_list_ty_loc_loc : Subst (list reft_type) loc loc := Subst_list. 
-Instance Subst_list_env_var_var : Subst type_env var var := Subst_list. 
-Instance Subst_list_env_loc_loc : Subst type_env loc loc := Subst_list. 
-
 Definition unique_sub' P (s : subst_t var var) (x : var) :=
   forall v, P v -> x <> v -> nonfv (subst s v) (subst s x).
 
@@ -2133,18 +2613,6 @@ Proof.
   firstorder.
 Qed.
 
-Ltac instantiate_ex :=
-  repeat match goal with
-    | H : exists _,_ |- _ => destruct H
-  end.
-
-Ltac decompose_all :=
-  repeat match goal with
-           | H : _ /\ _ |- _ => destruct H
-         end;
-  repeat match goal with
-           | H : _ \/ _ |- _ => destruct H
-         end.
 Lemma bind_in_empty_false :
   forall (x : var) h,
     bind_in x h -> ~ Empty h.
@@ -2169,52 +2637,12 @@ Lemma wf_unique_binds :
     MapsTo l' (x,t') h' ->
     False.
 Proof.
-  intros until h'. intros neq H.
-  induction H; intro.
-  {
-    rewrite HE_Props.F.elements_mapsto_iff in *.
-    assert (elements Σ' = []).
-    apply HE_Props.elements_Empty. easy. unfold type_binding in *. rewrite H1 in H0. 
-    inversion H0.
-  }
-  {
-    assert (bind_not_in x0 Σ0).
-    apply fresh_var_nonmem_heap with (G := Γ). easy.
-    unfold HE_Props.Add in *.
-    rewrite HE_Props.F.find_mapsto_iff in *.
-    rewrite (H4 l) in *.
-    rewrite <- HE_Props.F.find_mapsto_iff in *.
-    rewrite HE_Props.F.add_mapsto_iff in H5.
-    destruct H5.
-    destruct H5. inv H7.
-    intro.
-    rewrite HE_Props.F.find_mapsto_iff in H5.
-    rewrite (H4 l') in H5.
-    rewrite <- HE_Props.F.find_mapsto_iff in H5.
-    rewrite HE_Props.F.add_mapsto_iff in H5.
-    destruct H5.
-    destruct H5. inv H7. 
-    congruence.
-    destruct H5.
-    unfold bind_not_in in *.
-    rewrite HE_Props.F.find_mapsto_iff in *.
-    specialize (H6 l' t').
-    rewrite <- H7 in *.
-    contradiction H6.
-    reflexivity.
-    destruct H5.
-    intro.
-    rewrite HE_Props.F.find_mapsto_iff in *.
-    rewrite (H4 l') in *.
-    rewrite <- HE_Props.F.find_mapsto_iff in *.
-    rewrite HE_Props.F.add_mapsto_iff in *.
-    destruct H8. destruct H8. inv H9. (* inv H8. *)
-    unfold bind_not_in in *.
-    rewrite HE_Props.F.find_mapsto_iff in *.
-    specialize (H6 l t0).
-    rewrite <- H7 in *. contradiction H6. reflexivity.
-    intuition.
-  }
+  intros.
+  unfold wf_heap in *.
+  decompose_all.
+  apply H. 
+  specialize (H3 l l' x t0 t').
+  apply H3. split; assumption.
 Qed.
 
 Lemma unique_binds_neq :
@@ -2229,11 +2657,6 @@ Proof.
   inversion H0.
   reflexivity.
 Qed.
-
-Ltac apply_in_env f :=
-  match goal with 
-    | H : _ |- _ => apply f in H
-  end.
 
 Lemma modvars_unique_sub :
   forall (x : var) (s : subst_t var var) S,
@@ -2357,18 +2780,6 @@ Qed.
 (*   apply eq_dec. *)
 (* Qed. *)
 
-Ltac solve_by_rewrite :=
-  match goal with 
-      | H : _ |- _ => (rewrite H; easy) || (rewrite <- H; easy)
-  end.
-
-Ltac solve_by_inversion :=
-  (** thanks jrw **)
-  match goal with 
-    | H : _ |- _ => solve [inversion H]
-    | H : _ |- _ => solve [inversion H]; easy
-  end.
-
 Instance Proper_add l x t (h : heap_env) :
   Proper (Equal ==> iff) (HE_Props.Add l (x,t) h).
 Proof. 
@@ -2376,26 +2787,86 @@ Proof.
   solve_proper.
 Qed.
 
+Lemma wf_expr_Equal_heaps :
+  forall G H H' e,
+    Equal H H' ->
+    wf_expr G H e ->
+    wf_expr G H' e.
+Proof.
+  intros.
+  induction H1; eauto with wf.
+  + apply wf_var_hp.
+    unfold bind_in in *.
+    instantiate_ex.
+    exists x. exists x0.
+    solve_by_rewrite.
+Qed.
+
+Hint Resolve wf_expr_Equal_heaps : wf.
+
+Lemma wf_pred_Equal_heaps :
+  forall G H H' p,
+    Equal H H' -> wf_prop G H p -> wf_prop G H' p.
+Proof.
+  intros.
+  induction H1; eauto with wf.
+Qed.
+
+Hint Resolve wf_pred_Equal_heaps : wf.
+Lemma wf_ty_Equal_heaps :
+  forall G H H' b p,
+    Equal H H' -> wf_type G H { ν : b | p } ->
+    wf_type G H' { ν : b | p }.
+Proof.
+  intros.
+  constructor.
+  inv H1.
+  eauto with wf.
+Grab Existential Variables.
+exact (int_t).
+Qed.
+Hint Resolve wf_ty_Equal_heaps : wf.
+
 Lemma wf_Equal_heaps :
   forall G H H',
     wf_heap G H H' -> forall H'', Equal H' H'' -> wf_heap G H H''.
 Proof.
-  intros until H'. intro.
-  inv H0. intros.
-  apply wf_emp.
-  solve_by_rewrite.
   intros.
-  setoid_rewrite H0 in H6.
-  eapply wf_heap_bind; eauto.
+  unfold wf_heap in *.
+  split.
+  intros.
+  destruct t0.
+  decompose_all.
+  eapply wf_ty_Equal_heaps. hassumption.
+  rewrite <- H1 in H2.
+  eapply H0. eauto.
+  intros l' l'' x t' t''.
+  intro MT. decompose_all.
+  rewrite <- H1 in *.
+  eapply H4. split; eauto.
 Qed.
 
+(** 
 Lemma wf_heap_split : 
   forall G Ho H,
     wf_heap G Ho H ->
          forall H1 H2,
-           heap_split H1 H2 H -> (wf_heap G Ho H1 /\ wf_heap G Ho H2).
+           heap_split H1 H2 H -> wf_heap G Ho H1.
 Proof.
-  intros until H. intro. induction H0; intros.
+  intros.
+  unfold heap_split in *.
+  unfold HE_Props.Partition in *.
+  split. intros.
+  unfold wf_heap in *.
+  decompose_all.
+  assert (MapsTo l (x, t0) H).
+  apply H5. left. assumption.
+  
+  split.
+  
+  intros until H. intro. 
+  intros H'
+  induction H0; intros.
   + split; constructor; unfold heap_split in *;
     apply_in_env HE_Props.Partition_Empty;
     intuition.
@@ -2446,6 +2917,7 @@ Proof.
 Qed.
 
 Hint Resolve wf_heap_split_1 wf_heap_split_2 : heaps.
+**)
 
 Lemma nonfv_wf_cons :
   forall (x : var) t g (h : heap_env),
@@ -2453,7 +2925,18 @@ Lemma nonfv_wf_cons :
 Proof.
   intros.
   inv H.
-  eapply var_nonmem_free_ctx; eauto.
+  clear H8.
+  induction H7. 
+  + easy.
+  + step. apply nonfv_andp. split. apply nonfv_andp. split. apply SubstTy_var.
+    inv H3. simpl nonfv. unfold NFV. simpl. intro. inv H3. apply H9. reflexivity. easy.
+    rewrite bind_not_in_and_in in *.
+    eapply nonmem_var_type_fv; eauto.
+    rewrite var_not_in_and_in in *.
+    intro.
+    apply H3. unfold var_in in *. instantiate_ex. exists x1. right. assumption.
+    apply IHwf_env. inv H3. assumption. assumption.
+    easy.
 Qed.
 
 Lemma subst_list_length : 
@@ -2468,6 +2951,23 @@ Proof.
   inv H. reflexivity.
 Qed.
 
+Lemma weaken_env :
+  forall x t h Γ Ξ,
+     sep_ty x t * sep_heap h * (sep_env Γ && sep_guards Ξ)
+   |-- sep_ty x t && sep_env Γ && emp && sep_guards Ξ * sep_heap h.
+Proof.
+  intros.
+  rewrite sepcon_comm.
+  rewrite <- sepcon_assoc.
+  apply sepcon_derives.
+  rewrite sepcon_pure_andp; try do_pure.
+  apply andp_right. apply andp_right. apply andp_right. apply andp_left2. apply derives_refl.
+  do 2 apply andp_left1. apply derives_refl.
+  do_pure.
+  apply andp_left1. apply andp_left2. apply derives_refl.
+  apply derives_refl.
+Qed.
+
 Lemma sep_proof_proc_call :
     forall Φ Γ Γ' Σ Σ' Ξ f xs mxs mls r,
     wf_env Σ Γ ->
@@ -2480,7 +2980,6 @@ Lemma sep_proof_proc_call :
           ((sep_env Γ && sep_guards Ξ) * sep_heap Σ)
           (proc_s f xs r mxs mls)
           ((sep_env Γ' && sep_guards Ξ) * sep_heap Σ').
-
 Proof with (try assumption).
   (** Here we goo... **)
   intros.
@@ -2498,19 +2997,9 @@ Proof with (try assumption).
                                    * sep_heap (isub θ θl hi) * (sep_env Γ && sep_guards Ξ))
                             (Q' := sep_ty (isub θ θl (var_e x)) (isub θ θl t) * sep_heap (isub θ θl ho) * (sep_env Γ && sep_guards Ξ)).
   (** P ==> P' **)
-  fix_assert; apply subtype_args.
+  fix_assert; eauto using subtype_args. 
   (** Q' ==> Q **)
-  fix_assert.
-  (* rewrite <- sepcon_pure_andp with (P := sep_ty (isub θ θl (var_e x)) (isub θ θl t)). *)
-  rewrite sepcon_comm.
-  rewrite <- sepcon_assoc.
-  apply sepcon_derives.
-  rewrite sepcon_pure_andp; try do_pure.
-  apply andp_right. apply andp_right. apply andp_right. apply andp_left2. apply derives_refl.
-  do 2 apply andp_left1. apply derives_refl.
-  do_pure.
-  apply andp_left1. apply andp_left2. apply derives_refl.
-  apply derives_refl.
+  fix_assert. eauto using weaken_env.
   apply semax_frame with (R := sep_env Γ && sep_guards Ξ).
   unfold isub in *.
   setoid_rewrite <- subst_combine.
@@ -2585,7 +3074,7 @@ Proof with (try assumption).
   eapply var_nonmem_free_ctx; eauto.
   apply H19.
   apply H21.
-  eapply var_nonmem_free_grd.
+  eapply var_nonmem_free_grd'.
   apply H19.
   apply H21.
   auto.
@@ -2593,6 +3082,7 @@ Proof with (try assumption).
   pose (nonfv_andp (D := var)). simpl nonfv in n. apply n. split.
   eapply nonfv_wf_cons; eauto.
   inv H24.
+  rewrite var_not_in_and_in in *. rewrite bind_not_in_and_in in *.
   eapply var_nonmem_free_grd; eauto with var.
   unfold subset.
   intros.
@@ -2617,7 +3107,7 @@ Ltac solve_sub := match goal with
 Ltac nfv_env :=
   match goal with
     | |- context[@subst _ _ _ _ (subst_one ?v _) ?P] =>
-      assert (nonfv P v); eauto using var_nonmem_free_ctx, var_nonmem_free_grd
+      assert (nonfv P v); eauto using var_nonmem_free_ctx, var_nonmem_free_grd, var_nonmem_free_grd'
       ; solve_sub
   end.
   
@@ -2626,7 +3116,7 @@ Lemma sep_proof_assign :
   forall Φ Ξ Γ Σ τ v e,
     wf_env Σ Γ ->
     wf_heap Γ Σ Σ ->
-    wf_guards Γ Σ Ξ ->
+    wf_guards Γ Ξ ->
     stmt_type Φ Γ Σ Ξ (assign_s v e) ((v, {ν : τ | (var_e ν) .= e})::Γ) Σ ->
     semax (sep_proc_env Φ) 
           (sep_env Γ && sep_guards Ξ * sep_heap Σ) 
@@ -2674,64 +3164,25 @@ Lemma sep_proof_stmt :
   forall Φ Ξ Γ Γ' Σ Σ' s,
     wf_env Σ Γ ->
     wf_heap Γ Σ Σ ->
-    wf_guards Γ Σ Ξ ->
+    wf_guards Γ Ξ ->
     stmt_type Φ Γ Σ Ξ s Γ' Σ' ->
     sep_proc_env Φ |- {{ sep_env Γ && sep_guards Ξ * sep_heap Σ }} s {{ sep_env Γ' && sep_guards Ξ * sep_heap Σ' }}.
 Proof.
   intros until s.
   intros wf wf_h wf_g H. induction H.
-  + (** Skip **) admit.
-  + (** f(x) **) admit.
+  + apply semax_skip.
+  + eapply sep_proof_proc_call; eauto. 
+    eapply t_proc_s; eauto.
   + (** pad **) admit.
   + eapply sep_proof_assign; eauto. 
     eapply t_assign; eauto.
   + (** alloc **) admit.
   + (** if-then-else **) admit.
-  + (** s1;s2 **) admit.
+  + apply semax_seq with (Q := sep_env Γ' && sep_guards Ξ * sep_heap Σ').
+    intuition.
+    apply IHstmt_type2. eauto using wf_stmt. eauto using wf_heap_stmt. eauto using wf_guards_stmt.
 Qed.
   
-(*   intros. *)
-(*   rewrite <- sepcon_pure_andp. *)
-(*   rewrite <- sepcon_pure_andp. *)
-(*   dependent induction J. *)
-(*   + apply sep_proof_skip with (Φ := Φ) (Ξ := Ξ). constructor. *)
-(*   + apply sep_proof_proccall with (Φ := Φ) (Ξ := Ξ). *)
-(*     econstructor; eauto. *)
-(*     assumption. *)
-(*     assumption. *)
-(*   + apply sep_proof_assign with (Φ := Φ) (Ξ := Ξ).  *)
-(*     econstructor; eauto. *)
-(*     assumption. *)
-(*     assumption. *)
-(*   + repeat rewrite sepcon_pure_andp. *)
-(*     apply sep_proof_if with Γ1 Γ2 { ν : int_t | p }; assumption. *)
-(*     purity. *)
-(*     purity. *)
-(*     purity. *)
-(*     purity. *)
-(*   + apply semax_seq with (Q := sep_env Γ' * sep_guards Ξ). *)
-(*     apply IHJ1; assumption. *)
-(*     apply IHJ2.  *)
-(*     apply wf_env_stmt with (P := Φ) (G := Γ) (X := Ξ) (s := s1); assumption. *)
-(*     apply wf_guards_stmt with (P := Φ) (G := Γ) (X := Ξ) (s := s1); assumption. *)
-(*  + apply sep_env_pure. *)
-(*  + apply sep_guard_pure. *)
-(*  + apply sep_env_pure. *)
-(*  + apply sep_guard_pure. *)
-(* Qed. *)
-
-(* Corollary type_safety_stmt : *)
-(*   forall Φ Γ s, (Φ ; [] ; []) ⊢ s ::: Γ -> sep_proc_env Φ |- {{ emp }} s {{ TT }}. *)
-(* Proof. *)
-(*   intros. *)
-(*   assert (wf_env nil). constructor. *)
-(*   assert (wf_guards nil nil). constructor. *)
-(*   apply semax_pre_post with (P' := sep_env nil && sep_guards nil)  *)
-(*                             (Q' := sep_env Γ && sep_guards nil); *)
-(*   first [ apply sep_proof_stmt with (Φ := Φ) (Ξ := []); assumption *)
-(*         | unfold sep_guards; normalize ]. *)
-(* Qed. *)
-
 Theorem sep_proof_program :
   forall Φ p,
     prog_type Φ p -> semax_prog (sep_proc_env Φ) p.
